@@ -6,8 +6,10 @@ import {
   isImproving,
   fetchFromAaveSubgraph,
   fetchUsdPrices,
+  fetchStablecoinBalances,
   buildLoanPositions,
   computeLoanMetrics,
+  STABLECOIN_SYMBOLS,
   DEFAULT_R_DEPLOY,
   DEFAULT_ZONES,
 } from '@aave-monitor/core';
@@ -18,6 +20,12 @@ export type LoanAlertState = {
   loanId: string;
   wallet: string;
   healthFactor: number;
+  debtUsd: number;
+  collateralUsd: number;
+  suppliedStablecoinUsd: number;
+  maxBorrowByLtvUsd: number;
+  equityUsd: number;
+  netEarnUsd: number;
   currentZone: Zone;
   lastNotifiedZone: ZoneName | null;
   lastNotifiedAt: number;
@@ -28,6 +36,7 @@ export type LoanAlertState = {
 export type MonitorStatus = {
   running: boolean;
   states: LoanAlertState[];
+  totalWalletStablecoinUsd: number;
   lastPollAt: number | null;
   lastError: string | null;
 };
@@ -35,6 +44,7 @@ export type MonitorStatus = {
 export class Monitor {
   private states = new Map<string, LoanAlertState>();
   private timerId: ReturnType<typeof setInterval> | null = null;
+  private walletStablecoinUsd = new Map<string, number>();
   private lastPollAt: number | null = null;
   private lastError: string | null = null;
   private running = false;
@@ -44,6 +54,7 @@ export class Monitor {
     private readonly getConfig: () => AlertConfig,
     private readonly graphApiKey: string | undefined,
     private readonly coingeckoApiKey: string | undefined,
+    private readonly rpcUrl: string,
   ) {}
 
   start(): void {
@@ -75,6 +86,10 @@ export class Monitor {
     return {
       running: this.running,
       states: Array.from(this.states.values()),
+      totalWalletStablecoinUsd: Array.from(this.walletStablecoinUsd.values()).reduce(
+        (sum, value) => sum + value,
+        0,
+      ),
       lastPollAt: this.lastPollAt,
       lastError: this.lastError,
     };
@@ -93,6 +108,13 @@ export class Monitor {
         : null;
 
     const enabledWallets = config.wallets.filter((w) => w.enabled);
+    const enabledAddresses = new Set(enabledWallets.map((wallet) => wallet.address.toLowerCase()));
+    for (const existingAddress of Array.from(this.walletStablecoinUsd.keys())) {
+      if (!enabledAddresses.has(existingAddress)) {
+        this.walletStablecoinUsd.delete(existingAddress);
+      }
+    }
+
     if (enabledWallets.length === 0) {
       this.lastPollAt = Date.now();
       this.lastError = null;
@@ -129,10 +151,28 @@ export class Monitor {
     );
 
     const loans = buildLoanPositions(reserves, prices);
+    const walletStablecoinBalances = await fetchStablecoinBalances(address, this.rpcUrl).catch(
+      () => {
+        console.warn(
+          `[Monitor] Stablecoin wallet balances unavailable for ${this.shortAddr(address)}`,
+        );
+        return new Map<string, number>();
+      },
+    );
+    const walletStablecoinUsd = Array.from(walletStablecoinBalances.values()).reduce(
+      (sum, value) => sum + value,
+      0,
+    );
+    this.walletStablecoinUsd.set(address.toLowerCase(), walletStablecoinUsd);
+
     const now = Date.now();
 
     for (const loan of loans) {
       const metrics = computeLoanMetrics(loan, DEFAULT_R_DEPLOY);
+      const suppliedStablecoinUsd = loan.supplied.reduce(
+        (sum, asset) => (STABLECOIN_SYMBOLS.has(asset.symbol) ? sum + asset.usdValue : sum),
+        0,
+      );
       const zone = classifyZone(metrics.healthFactor, this.hydrateZones(config.zones));
       const stateKey = `${address}-${loan.id}`;
 
@@ -153,6 +193,12 @@ export class Monitor {
           loanId: loan.id,
           wallet: address,
           healthFactor: metrics.healthFactor,
+          debtUsd: metrics.debt,
+          collateralUsd: metrics.collateralUSD,
+          suppliedStablecoinUsd,
+          maxBorrowByLtvUsd: metrics.maxBorrowByLTV,
+          equityUsd: metrics.equity,
+          netEarnUsd: metrics.netEarnUSD,
           currentZone: zone,
           lastNotifiedZone: null,
           lastNotifiedAt: 0,
@@ -164,6 +210,12 @@ export class Monitor {
 
       const previousZone = existing.currentZone;
       existing.healthFactor = metrics.healthFactor;
+      existing.debtUsd = metrics.debt;
+      existing.collateralUsd = metrics.collateralUSD;
+      existing.suppliedStablecoinUsd = suppliedStablecoinUsd;
+      existing.maxBorrowByLtvUsd = metrics.maxBorrowByLTV;
+      existing.equityUsd = metrics.equity;
+      existing.netEarnUsd = metrics.netEarnUSD;
       existing.currentZone = zone;
 
       if (zone.name === previousZone.name) {

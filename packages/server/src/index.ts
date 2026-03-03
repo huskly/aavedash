@@ -3,7 +3,12 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { z } from 'zod';
-import { fetchStablecoinBalances } from '@aave-monitor/core';
+import {
+  classifyZone,
+  DEFAULT_ZONES,
+  type Zone,
+  fetchStablecoinBalances,
+} from '@aave-monitor/core';
 import { ConfigStorage, type AlertConfig } from './storage.js';
 import { TelegramClient } from './telegram.js';
 import { Monitor } from './monitor.js';
@@ -67,7 +72,13 @@ const COINGECKO_API_KEY = process.env.VITE_COINGECKO_API_KEY ?? process.env.COIN
 const configPath = join(__dirname, '..', 'data', 'config.json');
 const storage = new ConfigStorage(configPath);
 const telegram = new TelegramClient(TELEGRAM_BOT_TOKEN);
-const monitor = new Monitor(telegram, () => storage.get(), GRAPH_API_KEY, COINGECKO_API_KEY);
+const monitor = new Monitor(
+  telegram,
+  () => storage.get(),
+  GRAPH_API_KEY,
+  COINGECKO_API_KEY,
+  RPC_URL,
+);
 
 const app = express();
 app.use(express.json());
@@ -174,7 +185,30 @@ app.get('/api/health', (_req, res) => {
 
 // --- Telegram bot commands ---
 
-function formatStatusMessage(status: ReturnType<typeof monitor.getStatus>): string {
+function hydrateZones(configuredZones: AlertConfig['zones']): Zone[] {
+  if (!configuredZones || configuredZones.length === 0) {
+    return DEFAULT_ZONES;
+  }
+
+  const thresholdsByName = new Map(
+    configuredZones.map((zone) => [zone.name, { minHF: zone.minHF, maxHF: zone.maxHF }]),
+  );
+
+  return DEFAULT_ZONES.map((zone) => {
+    const override = thresholdsByName.get(zone.name);
+    if (!override) return zone;
+    return { ...zone, minHF: override.minHF, maxHF: override.maxHF };
+  });
+}
+
+function formatStatusMessage(
+  status: ReturnType<typeof monitor.getStatus>,
+  configuredZones: AlertConfig['zones'],
+): string {
+  const fmtUsd = (value: number): string =>
+    `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fmtPct = (value: number): string => `${(value * 100).toFixed(2)}%`;
+
   if (!status.running) {
     return 'Monitor is not running.';
   }
@@ -187,6 +221,45 @@ function formatStatusMessage(status: ReturnType<typeof monitor.getStatus>): stri
   }
 
   const lines: string[] = ['<b>Loan Status</b>', ''];
+  const totals = status.states.reduce(
+    (acc, state) => {
+      acc.debt += state.debtUsd;
+      acc.collateral += state.collateralUsd;
+      acc.suppliedStablecoin += state.suppliedStablecoinUsd;
+      acc.maxBorrowByLtv += state.maxBorrowByLtvUsd;
+      acc.equity += state.equityUsd;
+      acc.netEarn += state.netEarnUsd;
+      return acc;
+    },
+    { debt: 0, collateral: 0, suppliedStablecoin: 0, maxBorrowByLtv: 0, equity: 0, netEarn: 0 },
+  );
+  const portfolioNetApy = totals.equity > 0 ? totals.netEarn / totals.equity : 0;
+  const totalStablecoinUsd = totals.suppliedStablecoin + status.totalWalletStablecoinUsd;
+  const cashMargin = totals.debt > 0 ? totalStablecoinUsd / totals.debt : 0;
+  const borrowPowerUsed = totals.maxBorrowByLtv > 0 ? totals.debt / totals.maxBorrowByLtv : 0;
+  const finiteHealthFactors = status.states
+    .map((state) => state.healthFactor)
+    .filter((healthFactor) => Number.isFinite(healthFactor));
+  const averageHealthFactor =
+    finiteHealthFactors.length > 0
+      ? finiteHealthFactors.reduce((sum, healthFactor) => sum + healthFactor, 0) /
+        finiteHealthFactors.length
+      : Infinity;
+  const avgHealthFactorLabel = Number.isFinite(averageHealthFactor)
+    ? averageHealthFactor.toFixed(2)
+    : '∞';
+  const averageZone = classifyZone(averageHealthFactor, hydrateZones(configuredZones));
+
+  lines.push(
+    `<b>Portfolio</b>`,
+    `${averageZone.emoji} Avg HF <b>${avgHealthFactorLabel}</b>`,
+    `Net APY: <b>${fmtPct(portfolioNetApy)}</b>`,
+    `Total collateral: <b>${fmtUsd(totals.collateral)}</b>`,
+    `Total debt: <b>${fmtUsd(totals.debt)}</b>`,
+    `Borrow power used: <b>${fmtPct(borrowPowerUsed)}</b>`,
+    `Cash on hand: <b>${fmtUsd(totalStablecoinUsd)}</b> (${fmtPct(cashMargin)})`,
+    '',
+  );
 
   for (const state of status.states) {
     const addr = `${state.wallet.slice(0, 6)}...${state.wallet.slice(-4)}`;
@@ -210,14 +283,14 @@ function formatStatusMessage(status: ReturnType<typeof monitor.getStatus>): stri
 
 telegram.onCommand('status', async (chatId) => {
   const status = monitor.getStatus();
-  await telegram.sendMessage(chatId, formatStatusMessage(status));
+  await telegram.sendMessage(chatId, formatStatusMessage(status, storage.get().zones));
 });
 
 telegram.onCommand('refresh', async (chatId) => {
   await telegram.sendMessage(chatId, 'Refreshing loan data...');
   try {
     const status = await monitor.refreshState();
-    await telegram.sendMessage(chatId, formatStatusMessage(status));
+    await telegram.sendMessage(chatId, formatStatusMessage(status, storage.get().zones));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     await telegram.sendMessage(chatId, `Refresh failed: ${message}`);
@@ -230,7 +303,7 @@ telegram.onCommand('help', async (chatId) => {
     [
       '<b>Aave Loan Monitor</b>',
       '',
-      '/status — Show current loan positions and health factors',
+      '/status — Show portfolio totals, average health factor, and current loan health factors',
       '/refresh — Force-refresh data and show updated status',
       '/help — Show this help message',
     ].join('\n'),
