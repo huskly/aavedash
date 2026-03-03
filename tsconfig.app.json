@@ -17,6 +17,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
+    "baseUrl": ".",
     "paths": {
       "@aave-monitor/core": ["./packages/aave-core/src/index.ts"]
     }
