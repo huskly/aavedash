@@ -20,6 +20,7 @@ import {
   type LoanPosition,
   ETHEREUM_ADDRESS_REGEX,
   DEFAULT_R_DEPLOY,
+  STABLECOIN_SYMBOLS,
   clamp,
   computeLoanMetrics,
   healthLabel,
@@ -35,7 +36,17 @@ const GRAPH_API_KEY = import.meta.env.VITE_THE_GRAPH_API_KEY as string | undefin
 const COINGECKO_API_KEY = import.meta.env.VITE_COINGECKO_API_KEY as string | undefined;
 const R_DEPLOY_ENV = import.meta.env.VITE_R_DEPLOY as string | undefined;
 const R_DEPLOY = parseDeployRate(R_DEPLOY_ENV, DEFAULT_R_DEPLOY);
+const NOTIFICATION_API_URL =
+  (import.meta.env.VITE_NOTIFICATION_API_URL as string | undefined) ?? '';
 const UPDATE_RATE_MS = 120_000;
+
+async function fetchWalletStablecoins(wallet: string): Promise<Map<string, number>> {
+  if (!NOTIFICATION_API_URL) return new Map();
+  const res = await fetch(`${NOTIFICATION_API_URL}/api/balances/${wallet}`);
+  if (!res.ok) return new Map();
+  const data = (await res.json()) as Record<string, number>;
+  return new Map(Object.entries(data));
+}
 
 function getWalletFromQueryString(): string {
   const params = new URLSearchParams(window.location.search);
@@ -83,6 +94,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [result, setResult] = useState<FetchState | null>(null);
+  const [walletStablecoins, setWalletStablecoins] = useState<Map<string, number>>(new Map());
   const [now, setNow] = useState(() => Date.now());
   const hasAutoFetchedFromQuery = useRef(false);
 
@@ -114,6 +126,22 @@ export default function App() {
         ? finiteHealthFactors.reduce((sum, item) => sum + item, 0) / finiteHealthFactors.length
         : Infinity;
 
+    // Cash margin of safety
+    let suppliedStablecoinUsd = 0;
+    for (const loan of result.loans) {
+      for (const asset of loan.supplied) {
+        if (STABLECOIN_SYMBOLS.has(asset.symbol)) {
+          suppliedStablecoinUsd += asset.usdValue;
+        }
+      }
+    }
+    let walletStablecoinUsd = 0;
+    for (const value of walletStablecoins.values()) {
+      walletStablecoinUsd += value;
+    }
+    const totalStablecoinUsd = suppliedStablecoinUsd + walletStablecoinUsd;
+    const cashMargin = totalDebt > 0 ? totalStablecoinUsd / totalDebt : 0;
+
     return {
       loanCount: metrics.length,
       totalDebt,
@@ -128,8 +156,10 @@ export default function App() {
       averageBorrowApy: totalDebt > 0 ? totalBorrowCost / totalDebt : 0,
       portfolioNetApy: totalNetWorth > 0 ? totalNetEarn / totalNetWorth : 0,
       borrowPowerUsed: totalMaxBorrow > 0 ? totalDebt / totalMaxBorrow : 0,
+      cashMargin,
+      totalStablecoinUsd,
     };
-  }, [result]);
+  }, [result, walletStablecoins]);
   const portfolioHealthBand = useMemo(
     () => portfolioHealthFactorBand(portfolio?.averageHealthFactor ?? NaN),
     [portfolio],
@@ -140,12 +170,16 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const reserves = await fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY);
+      const [reserves, stableBalances] = await Promise.all([
+        fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY),
+        fetchWalletStablecoins(normalizedWallet).catch(() => new Map<string, number>()),
+      ]);
       const reserveSymbols = Array.from(new Set(reserves.map((entry) => entry.reserve.symbol)));
       const prices = await fetchUsdPrices(reserveSymbols, COINGECKO_API_KEY);
       const loans = buildLoanPositions(reserves, prices);
       const updatedAt = Date.now();
 
+      setWalletStablecoins(stableBalances);
       setNow(updatedAt);
       setResult({
         wallet: normalizedWallet,
@@ -350,6 +384,18 @@ export default function App() {
                         title="Borrow power used"
                         value={fmtPct(portfolio.borrowPowerUsed)}
                         caption="Debt / Max borrow by LTV"
+                      />
+                      <KpiCard
+                        title="Cash margin of safety"
+                        value={fmtPct(portfolio.cashMargin)}
+                        valueClassName={
+                          portfolio.cashMargin >= 0.1
+                            ? 'text-green-400'
+                            : portfolio.cashMargin >= 0.05
+                              ? 'text-yellow-400'
+                              : 'text-red-400'
+                        }
+                        caption={`${fmtUSD(portfolio.totalStablecoinUsd, 0)} stablecoins / ${fmtUSD(portfolio.totalDebt, 0)} debt`}
                       />
                     </CardContent>
                     <CardContent>

@@ -25,6 +25,7 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `VITE_R_DEPLOY` — optional deploy APY rate (decimal, default 0.1125)
 - `VITE_BASE_PATH` — used in vite.config.ts for GitHub Pages deployment
 - `VITE_NOTIFICATION_API_URL` — frontend URL for notification server (e.g. `http://localhost:3001`)
+- `RPC_URL` — Ethereum JSON-RPC endpoint used by backend for on-chain reads (default `https://eth.llamarpc.com`)
 - `TELEGRAM_BOT_TOKEN` — backend Telegram bot token (loaded from root `.env`)
 - `PORT` — optional backend port (default `3001`)
 

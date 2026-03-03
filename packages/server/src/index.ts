@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { z } from 'zod';
+import { fetchStablecoinBalances } from '@aave-monitor/core';
 import { ConfigStorage, type AlertConfig } from './storage.js';
 import { TelegramClient } from './telegram.js';
 import { Monitor } from './monitor.js';
@@ -58,6 +59,7 @@ if (existsSync(ROOT_ENV_PATH)) {
 }
 
 const PORT = Number(process.env.PORT ?? 3001);
+const RPC_URL = process.env.VITE_RPC_URL ?? process.env.RPC_URL ?? 'https://eth.llamarpc.com';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
 const GRAPH_API_KEY = process.env.VITE_THE_GRAPH_API_KEY ?? process.env.THE_GRAPH_API_KEY;
 const COINGECKO_API_KEY = process.env.VITE_COINGECKO_API_KEY ?? process.env.COINGECKO_API_KEY;
@@ -147,6 +149,22 @@ app.post('/api/status/refresh', async (_req, res) => {
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to refresh monitor state';
     res.status(500).json({ error: message });
+  }
+});
+
+app.get('/api/balances/:wallet', async (req, res) => {
+  const { wallet } = req.params;
+  if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+    res.status(400).json({ error: 'Invalid wallet address' });
+    return;
+  }
+
+  try {
+    const balances = await fetchStablecoinBalances(wallet, RPC_URL);
+    res.json(Object.fromEntries(balances));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch balances';
+    res.status(502).json({ error: message });
   }
 });
 

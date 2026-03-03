@@ -14,8 +14,12 @@ export {
   COINGECKO_IDS_BY_SYMBOL,
   DEFAULT_R_DEPLOY,
   ETHEREUM_ADDRESS_REGEX,
+  STABLECOIN_CONTRACTS,
+  STABLECOIN_SYMBOLS,
   USER_RESERVES_QUERY,
 } from './constants.js';
+
+export { fetchStablecoinBalances } from './balances.js';
 
 export {
   clamp,
