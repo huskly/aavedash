@@ -65,7 +65,16 @@ export class ConfigStorage {
         return structuredClone(DEFAULT_CONFIG);
       }
       const raw = readFileSync(this.filePath, 'utf-8');
-      return JSON.parse(raw) as AlertConfig;
+      const config = JSON.parse(raw) as AlertConfig;
+      // JSON.stringify turns Infinity into null; restore it on load
+      if (config.zones) {
+        for (const zone of config.zones) {
+          if (zone.maxHF === null || zone.maxHF === undefined) {
+            zone.maxHF = Infinity;
+          }
+        }
+      }
+      return config;
     } catch {
       return structuredClone(DEFAULT_CONFIG);
     }

@@ -139,6 +139,7 @@ Quick start:
 2. Add `TELEGRAM_BOT_TOKEN=<your token>` to the project root `.env`.
 3. Run `yarn dev:server` to start the monitor.
 4. Add `VITE_NOTIFICATION_API_URL=http://localhost:3001` to the same root `.env` and use the bell icon in the dashboard to configure alerts.
+5. If monitor status appears stale, trigger an immediate refresh with `POST /api/status/refresh` (see docs).
 
 ## How It Works
 

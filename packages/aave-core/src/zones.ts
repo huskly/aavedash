@@ -58,7 +58,8 @@ export function classifyZone(healthFactor: number, zones: Zone[] = DEFAULT_ZONES
   }
 
   for (const zone of zones) {
-    if (healthFactor >= zone.minHF && healthFactor < zone.maxHF) {
+    const maxHF = zone.maxHF ?? Infinity;
+    if (healthFactor >= zone.minHF && healthFactor < maxHF) {
       return zone;
     }
   }

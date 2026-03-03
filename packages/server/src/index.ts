@@ -140,6 +140,16 @@ app.get('/api/status', (_req, res) => {
   res.json(monitor.getStatus());
 });
 
+app.post('/api/status/refresh', async (_req, res) => {
+  try {
+    const status = await monitor.refreshState();
+    res.json(status);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to refresh monitor state';
+    res.status(500).json({ error: message });
+  }
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });

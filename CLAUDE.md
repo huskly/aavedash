@@ -32,6 +32,7 @@ Backend server notes:
 
 - `packages/server` auto-loads the root `.env` on startup.
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
+- `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 
 ## Architecture
 

@@ -81,6 +81,9 @@ curl -X POST http://localhost:3001/api/telegram/test
 
 # Check monitoring status
 curl http://localhost:3001/api/status
+
+# Force immediate state refresh (recompute zones now)
+curl -X POST http://localhost:3001/api/status/refresh
 ```
 
 ## Health Factor Zones
@@ -115,10 +118,11 @@ This starts both the frontend (port 80) and the monitor server (port 3001). The 
 
 ## API Reference
 
-| Method | Path                 | Purpose                           |
-| ------ | -------------------- | --------------------------------- |
-| `GET`  | `/api/config`        | Get current alert configuration   |
-| `PUT`  | `/api/config`        | Update alert configuration        |
-| `POST` | `/api/telegram/test` | Send test message                 |
-| `GET`  | `/api/status`        | Current monitoring state per loan |
-| `GET`  | `/api/health`        | Health check                      |
+| Method | Path                  | Purpose                                                 |
+| ------ | --------------------- | ------------------------------------------------------- |
+| `GET`  | `/api/config`         | Get current alert configuration                         |
+| `PUT`  | `/api/config`         | Update alert configuration                              |
+| `POST` | `/api/telegram/test`  | Send test message                                       |
+| `GET`  | `/api/status`         | Current monitoring state per loan                       |
+| `POST` | `/api/status/refresh` | Force immediate monitor refresh and return latest state |
+| `GET`  | `/api/health`         | Health check                                            |

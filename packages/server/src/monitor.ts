@@ -17,6 +17,7 @@ import type { TelegramClient } from './telegram.js';
 export type LoanAlertState = {
   loanId: string;
   wallet: string;
+  healthFactor: number;
   currentZone: Zone;
   lastNotifiedZone: ZoneName | null;
   lastNotifiedAt: number;
@@ -79,19 +80,28 @@ export class Monitor {
     };
   }
 
-  private async poll(): Promise<void> {
-    const config = this.getConfig();
+  async refreshState(): Promise<MonitorStatus> {
+    await this.poll({ notify: false });
+    return this.getStatus();
+  }
 
-    if (!config.telegram.enabled || !config.telegram.chatId) {
+  private async poll(options: { notify: boolean } = { notify: true }): Promise<void> {
+    const config = this.getConfig();
+    const chatId =
+      options.notify && config.telegram.enabled && config.telegram.chatId
+        ? config.telegram.chatId
+        : null;
+
+    const enabledWallets = config.wallets.filter((w) => w.enabled);
+    if (enabledWallets.length === 0) {
+      this.lastPollAt = Date.now();
+      this.lastError = null;
       return;
     }
 
-    const enabledWallets = config.wallets.filter((w) => w.enabled);
-    if (enabledWallets.length === 0) return;
-
     try {
       for (const wallet of enabledWallets) {
-        await this.checkWallet(wallet.address, wallet.label, config);
+        await this.checkWallet(wallet.address, wallet.label, config, chatId);
       }
       this.lastPollAt = Date.now();
       this.lastError = null;
@@ -105,10 +115,19 @@ export class Monitor {
     address: string,
     label: string | undefined,
     config: AlertConfig,
+    chatId: string | null,
   ): Promise<void> {
     const reserves = await fetchFromAaveSubgraph(address, this.graphApiKey);
     const symbols = Array.from(new Set(reserves.map((r) => r.reserve.symbol)));
     const prices = await fetchUsdPrices(symbols, this.coingeckoApiKey);
+
+    const pricedSymbols = symbols.filter((s) => prices.has(s));
+    const missingSymbols = symbols.filter((s) => !prices.has(s));
+    console.log(
+      `[Monitor] Prices for ${this.shortAddr(address)}: ${pricedSymbols.length}/${symbols.length} resolved.` +
+        (missingSymbols.length > 0 ? ` Missing: ${missingSymbols.join(', ')}` : ''),
+    );
+
     const loans = buildLoanPositions(reserves, prices);
     const now = Date.now();
 
@@ -116,12 +135,24 @@ export class Monitor {
       const metrics = computeLoanMetrics(loan, DEFAULT_R_DEPLOY);
       const zone = classifyZone(metrics.healthFactor, this.hydrateZones(config.zones));
       const stateKey = `${address}-${loan.id}`;
+
+      const collateralInfo = loan.supplied
+        .map((c) => `${c.symbol}=$${prices.get(c.symbol) ?? 'MISSING'}`)
+        .join(', ');
+      console.log(
+        `[Monitor] ${this.shortAddr(address)} loan=${loan.id} ` +
+          `HF=${metrics.healthFactor.toFixed(4)} ` +
+          `borrowed=$${loan.totalBorrowedUsd.toFixed(2)} supplied=$${loan.totalSuppliedUsd.toFixed(2)} ` +
+          `zone=${zone.name} collaterals=[${collateralInfo}]`,
+      );
+
       const existing = this.states.get(stateKey);
 
       if (!existing) {
         this.states.set(stateKey, {
           loanId: loan.id,
           wallet: address,
+          healthFactor: metrics.healthFactor,
           currentZone: zone,
           lastNotifiedZone: null,
           lastNotifiedAt: 0,
@@ -132,6 +163,7 @@ export class Monitor {
       }
 
       const previousZone = existing.currentZone;
+      existing.healthFactor = metrics.healthFactor;
       existing.currentZone = zone;
 
       if (zone.name === previousZone.name) {
@@ -140,11 +172,12 @@ export class Monitor {
         if (zone.name !== 'safe' && existing.stuckSince) {
           const stuckDuration = now - existing.stuckSince;
           if (
+            chatId &&
             stuckDuration >= config.polling.reminderIntervalMs &&
             now - existing.lastNotifiedAt >= config.polling.reminderIntervalMs
           ) {
             await this.sendNotification(
-              config.telegram.chatId,
+              chatId,
               this.formatReminder(address, label, loan, metrics, zone, stuckDuration),
             );
             existing.lastNotifiedAt = now;
@@ -161,9 +194,9 @@ export class Monitor {
         const shouldNotify =
           isCritical || existing.consecutiveChecks >= config.polling.debounceChecks;
 
-        if (shouldNotify || isCritical) {
+        if (chatId && (shouldNotify || isCritical)) {
           await this.sendNotification(
-            config.telegram.chatId,
+            chatId,
             this.formatZoneTransition(address, label, loan, metrics, zone, previousZone),
           );
           existing.lastNotifiedZone = zone.name;
@@ -171,15 +204,12 @@ export class Monitor {
         }
       } else if (isImproving(previousZone.name, zone.name)) {
         const cooldownElapsed = now - existing.lastNotifiedAt >= config.polling.cooldownMs;
-        if (cooldownElapsed) {
+        if (chatId && cooldownElapsed) {
           if (zone.name === 'safe') {
-            await this.sendNotification(
-              config.telegram.chatId,
-              this.formatAllClear(address, label, loan, metrics),
-            );
+            await this.sendNotification(chatId, this.formatAllClear(address, label, loan, metrics));
           } else {
             await this.sendNotification(
-              config.telegram.chatId,
+              chatId,
               this.formatRecovery(address, label, loan, metrics, zone, previousZone),
             );
           }
