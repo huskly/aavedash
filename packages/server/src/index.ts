@@ -80,6 +80,31 @@ const monitor = new Monitor(
   RPC_URL,
 );
 
+function syncRuntimeServices(options: { restartMonitor?: boolean } = {}): void {
+  const { restartMonitor = false } = options;
+  const config = storage.get();
+
+  if (TELEGRAM_BOT_TOKEN) {
+    telegram.startCommandPolling();
+  } else {
+    telegram.stopCommandPolling();
+  }
+
+  const shouldRunMonitor = Boolean(
+    config.telegram.enabled && config.telegram.chatId && TELEGRAM_BOT_TOKEN,
+  );
+  if (shouldRunMonitor) {
+    if (restartMonitor) {
+      monitor.restart();
+    } else {
+      monitor.start();
+    }
+  } else {
+    monitor.stop();
+    console.log('Monitor not started: telegram not configured or enabled');
+  }
+}
+
 const app = express();
 app.use(express.json());
 
@@ -115,7 +140,7 @@ app.put('/api/config', (req, res) => {
     return;
   }
   const updated = storage.update(parsed.data);
-  monitor.restart();
+  syncRuntimeServices({ restartMonitor: true });
   res.json({
     wallets: updated.wallets,
     telegram: { chatId: updated.telegram.chatId, enabled: updated.telegram.enabled },
@@ -321,12 +346,5 @@ if (existsSync(publicDir)) {
 
 app.listen(PORT, () => {
   console.log(`Aave monitor server listening on port ${PORT}`);
-
-  const config = storage.get();
-  if (config.telegram.enabled && config.telegram.chatId && TELEGRAM_BOT_TOKEN) {
-    monitor.start();
-    telegram.startCommandPolling();
-  } else {
-    console.log('Monitor not started: telegram not configured or enabled');
-  }
+  syncRuntimeServices();
 });
