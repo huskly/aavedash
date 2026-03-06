@@ -6,3 +6,4 @@
 - Use yarn for managing dependencies
 - Use `gh` to interact with Github pull requests, issues, etc.
 - Please make sure the project `README.md` and documentation under `docs/` are kept up to date with each change.
+- Please write automated tests to cover newly added functionality wherever appropriate, or update existing tests when changing code.

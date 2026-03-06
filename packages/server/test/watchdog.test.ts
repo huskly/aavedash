@@ -297,6 +297,76 @@ test('executeRepay skips when gas price exceeds configured max and notifies', as
   assert.match(messages[0]!, /Gas too high/);
 });
 
+test('getStatusSummary reflects config and private key state', () => {
+  const config = createConfig({ triggerHF: 1.3, targetHF: 1.6 });
+  const { watchdog: withKey } = createWatchdog(config);
+  const summary1 = withKey.getStatusSummary();
+  assert.equal(summary1.enabled, true);
+  assert.equal(summary1.dryRun, false);
+  assert.equal(summary1.hasPrivateKey, true);
+  assert.equal(summary1.triggerHF, 1.3);
+  assert.equal(summary1.targetHF, 1.6);
+  assert.equal(summary1.recentActions, 0);
+
+  const { watchdog: noKey } = createWatchdog(createConfig({ enabled: false, dryRun: true }), {
+    privateKey: null,
+  });
+  const summary2 = noKey.getStatusSummary();
+  assert.equal(summary2.enabled, false);
+  assert.equal(summary2.dryRun, true);
+  assert.equal(summary2.hasPrivateKey, false);
+});
+
+test('getLog returns log entries in reverse chronological order', async () => {
+  const { watchdog } = createWatchdog(createConfig({ dryRun: true, maxRepayUsd: 50 }));
+  const balances = new Map<string, number>([['USDC', 1_000]]);
+  await watchdog.evaluate(createLoan(), WALLET, balances);
+
+  const log = watchdog.getLog();
+  assert.equal(log.length, 1);
+  assert.equal(log[0]!.action, 'dry-run');
+  assert.equal(log[0]!.loanId, 'loan-1');
+  assert.equal(log[0]!.wallet, WALLET);
+
+  // Verify getStatusSummary reflects the logged action
+  const summary = watchdog.getStatusSummary();
+  assert.equal(summary.recentActions, 1);
+});
+
+test('getLog returns a copy that does not mutate internal state', async () => {
+  const { watchdog } = createWatchdog(createConfig({ dryRun: true, maxRepayUsd: 50 }));
+  const balances = new Map<string, number>([['USDC', 1_000]]);
+  await watchdog.evaluate(createLoan(), WALLET, balances);
+
+  const log = watchdog.getLog();
+  log.length = 0;
+  assert.equal(watchdog.getLog().length, 1);
+});
+
+test('disabled watchdog skips evaluation entirely', async () => {
+  const { watchdog, messages } = createWatchdog(createConfig({ enabled: false }));
+  const balances = new Map<string, number>([['USDC', 1_000]]);
+  await watchdog.evaluate(createLoan(), WALLET, balances);
+
+  assert.equal(watchdog.getLog().length, 0);
+  assert.equal(messages.length, 0);
+});
+
+test('watchdog skips when adjusted HF is above trigger', async () => {
+  const loan = createLoan();
+  // Make a healthy loan: low debt relative to collateral
+  loan.borrowed.amount = 100;
+  loan.borrowed.usdValue = 100;
+  loan.totalBorrowedUsd = 100;
+
+  const { watchdog, messages } = createWatchdog(createConfig({ dryRun: true }));
+  const balances = new Map<string, number>([['USDC', 1_000]]);
+  await watchdog.evaluate(loan, WALLET, balances);
+
+  assert.equal(watchdog.getLog().length, 0);
+  assert.equal(messages.length, 0);
+});
+
 test('executeRepay skips when ETH balance is too low and notifies', async () => {
   const config = createConfig();
   const { watchdog, messages } = createWatchdog(config);

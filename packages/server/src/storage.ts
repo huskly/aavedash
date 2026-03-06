@@ -144,7 +144,9 @@ export class ConfigStorage {
     return this.config;
   }
 
-  update(partial: Partial<AlertConfig>): AlertConfig {
+  update(
+    partial: Partial<Omit<AlertConfig, 'watchdog'>> & { watchdog?: Partial<WatchdogConfig> },
+  ): AlertConfig {
     if (partial.wallets !== undefined) this.config.wallets = partial.wallets;
     if (partial.telegram !== undefined) this.config.telegram = partial.telegram;
     if (partial.polling !== undefined) this.config.polling = partial.polling;

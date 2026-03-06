@@ -17,6 +17,7 @@ import {
 import { intervalToDuration } from 'date-fns';
 import type { AlertConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
+import { Watchdog, type WatchdogLogEntry } from './watchdog.js';
 
 export type LoanAlertState = {
   loanId: string;
@@ -42,6 +43,7 @@ export type MonitorStatus = {
   totalWalletStablecoinUsd: number;
   lastPollAt: number | null;
   lastError: string | null;
+  watchdogLog: WatchdogLogEntry[];
 };
 
 export class Monitor {
@@ -51,6 +53,7 @@ export class Monitor {
   private lastPollAt: number | null = null;
   private lastError: string | null = null;
   private running = false;
+  readonly watchdog: Watchdog;
 
   constructor(
     private readonly telegram: TelegramClient,
@@ -58,7 +61,19 @@ export class Monitor {
     private readonly graphApiKey: string | undefined,
     private readonly coingeckoApiKey: string | undefined,
     private readonly rpcUrl: string,
-  ) {}
+    privateKey: string | undefined,
+  ) {
+    this.watchdog = new Watchdog(
+      telegram,
+      () => {
+        const config = this.getConfig();
+        return config.telegram.enabled && config.telegram.chatId ? config.telegram.chatId : null;
+      },
+      () => this.getConfig().watchdog,
+      rpcUrl,
+      privateKey,
+    );
+  }
 
   start(): void {
     if (this.running) return;
@@ -95,6 +110,7 @@ export class Monitor {
       ),
       lastPollAt: this.lastPollAt,
       lastError: this.lastError,
+      watchdogLog: this.watchdog.getLog(),
     };
   }
 
@@ -281,6 +297,11 @@ export class Monitor {
           existing.lastNotifiedAt = now;
         }
       }
+    }
+
+    // Watchdog evaluation pass — runs after alerts so notifications always go out first
+    for (const loan of loans) {
+      await this.watchdog.evaluate(loan, address, walletStablecoinBalances);
     }
 
     const walletPrefix = `${address}-`;

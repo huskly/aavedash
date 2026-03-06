@@ -169,14 +169,18 @@ Quick start:
 4. Use the bell icon in the dashboard to configure alerts.
 5. If monitor status appears stale, trigger an immediate refresh with `POST /api/status/refresh` (see docs).
 
-## Watchdog (In Development)
+## Watchdog (Auto-Repay)
 
 Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual.md)**.
 
-Current status:
+The watchdog monitors loan health and can automatically repay stablecoin debt to prevent liquidation. It uses an "adjusted HF" that excludes same-asset collateral to make safe repay decisions.
 
-- Watchdog engine/config logic is implemented and tested.
-- Full end-to-end runtime wiring (monitor/API/Telegram command surfaces) is still being finalized.
+- Runs after each monitor poll, evaluating all loans
+- Dry-run mode by default (notifies what _would_ happen, no on-chain transactions)
+- Live mode requires `WATCHDOG_PRIVATE_KEY` env var
+- API: `GET /api/watchdog/status` for status and recent action log
+- Telegram: `/watchdog` command for status and recent actions
+- Config: watchdog section in `GET/PUT /api/config`
 
 ## How It Works
 
