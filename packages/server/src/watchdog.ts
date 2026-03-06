@@ -433,7 +433,12 @@ function padAddress(address: string): string {
 }
 
 function amountToHex(amount: number, decimals: number): string {
-  const raw = BigInt(Math.floor(amount * 10 ** decimals));
+  // Use string-based conversion to avoid floating point precision issues
+  const fixed = amount.toFixed(decimals);
+  const [integerPart, fractionalPartRaw = ''] = fixed.split('.');
+  const fractionalPart = fractionalPartRaw.padEnd(decimals, '0').slice(0, decimals);
+  const rawStr = integerPart + fractionalPart;
+  const raw = BigInt(rawStr);
   return '0x' + raw.toString(16).padStart(64, '0');
 }
 
