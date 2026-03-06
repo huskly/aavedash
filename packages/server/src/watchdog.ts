@@ -96,9 +96,19 @@ export class Watchdog {
     const lastAction = this.cooldowns.get(stateKey) ?? 0;
     const now = Date.now();
     if (now - lastAction < config.cooldownMs) {
+      const remainingMs = config.cooldownMs - (now - lastAction);
       console.log(
-        `[Watchdog] Cooldown active for ${stateKey}, skipping (${Math.round((config.cooldownMs - (now - lastAction)) / 1000)}s remaining)`,
+        `[Watchdog] Cooldown active for ${stateKey}, skipping (${Math.round(remainingMs / 1000)}s remaining)`,
       );
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: `Cooldown active: ${Math.round(remainingMs / 1000)}s remaining`,
+        adjustedHF: adjusted.adjustedHF,
+        repayAmountUsd: 0,
+      });
       return;
     }
 

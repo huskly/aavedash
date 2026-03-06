@@ -10,9 +10,14 @@ import {
   type Zone,
   fetchStablecoinBalances,
 } from '@aave-monitor/core';
-import { ConfigStorage, type AlertConfig } from './storage.js';
-import { TelegramClient } from './telegram.js';
+import { ConfigStorage, type AlertConfig, type WatchdogConfig } from './storage.js';
+import { TelegramClient, type TelegramBotCommand } from './telegram.js';
 import { Monitor } from './monitor.js';
+import {
+  formatWatchdogStatusMessage,
+  shouldRunMonitor,
+  validateWatchdogThresholds,
+} from './runtime.js';
 
 const partialAlertConfigSchema = z
   .object({
@@ -40,10 +45,25 @@ const partialAlertConfigSchema = z
         maxHF: z.number(),
       }),
     ),
+    watchdog: z
+      .object({
+        enabled: z.boolean(),
+        dryRun: z.boolean(),
+        triggerHF: z.number().positive(),
+        targetHF: z.number().positive(),
+        cooldownMs: z.number().positive(),
+        maxRepayUsd: z.number().positive(),
+        maxGasGwei: z.number().positive(),
+      })
+      .partial(),
   })
   .partial();
 
-function parseConfigBody(body: unknown): { data: Partial<AlertConfig> } | { error: string } {
+type ConfigUpdate = Partial<Omit<AlertConfig, 'watchdog'>> & {
+  watchdog?: Partial<WatchdogConfig>;
+};
+
+function parseConfigBody(body: unknown): { data: ConfigUpdate } | { error: string } {
   const result = partialAlertConfigSchema.safeParse(body);
   if (!result.success) {
     const issue = result.error.issues[0];
@@ -69,6 +89,7 @@ const RPC_URL = process.env.VITE_RPC_URL ?? process.env.RPC_URL ?? 'https://rpc.
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
 const GRAPH_API_KEY = process.env.VITE_THE_GRAPH_API_KEY ?? process.env.THE_GRAPH_API_KEY;
 const COINGECKO_API_KEY = process.env.VITE_COINGECKO_API_KEY ?? process.env.COINGECKO_API_KEY;
+const WATCHDOG_PRIVATE_KEY = process.env.WATCHDOG_PRIVATE_KEY;
 
 const configPath = join(__dirname, '..', 'data', 'config.json');
 const storage = new ConfigStorage(configPath);
@@ -79,22 +100,28 @@ const monitor = new Monitor(
   GRAPH_API_KEY,
   COINGECKO_API_KEY,
   RPC_URL,
+  WATCHDOG_PRIVATE_KEY,
 );
+
+const TELEGRAM_BOT_COMMANDS: TelegramBotCommand[] = [
+  { command: 'status', description: 'Show portfolio status and health factors' },
+  { command: 'refresh', description: 'Refresh data and show updated status' },
+  { command: 'watchdog', description: 'Show watchdog status and recent actions' },
+  { command: 'help', description: 'List available commands' },
+];
 
 function syncRuntimeServices(options: { restartMonitor?: boolean } = {}): void {
   const { restartMonitor = false } = options;
   const config = storage.get();
 
   if (TELEGRAM_BOT_TOKEN) {
+    void telegram.syncCommands(TELEGRAM_BOT_COMMANDS);
     telegram.startCommandPolling();
   } else {
     telegram.stopCommandPolling();
   }
 
-  const shouldRunMonitor = Boolean(
-    config.telegram.enabled && config.telegram.chatId && TELEGRAM_BOT_TOKEN,
-  );
-  if (shouldRunMonitor) {
+  if (shouldRunMonitor(config)) {
     if (restartMonitor) {
       monitor.restart();
     } else {
@@ -102,7 +129,7 @@ function syncRuntimeServices(options: { restartMonitor?: boolean } = {}): void {
     }
   } else {
     monitor.stop();
-    console.log('Monitor not started: telegram not configured or enabled');
+    console.log('Monitor not started: no enabled wallets');
   }
 }
 
@@ -131,6 +158,7 @@ app.get('/api/config', (_req, res) => {
     telegram: { chatId: config.telegram.chatId, enabled: config.telegram.enabled },
     polling: config.polling,
     zones: config.zones,
+    watchdog: config.watchdog,
   });
 });
 
@@ -140,6 +168,11 @@ app.put('/api/config', (req, res) => {
     res.status(400).json({ error: parsed.error });
     return;
   }
+  const watchdogError = validateWatchdogThresholds(storage.get().watchdog, parsed.data.watchdog);
+  if (watchdogError) {
+    res.status(400).json({ error: watchdogError });
+    return;
+  }
   const updated = storage.update(parsed.data);
   syncRuntimeServices({ restartMonitor: true });
   res.json({
@@ -147,6 +180,7 @@ app.put('/api/config', (req, res) => {
     telegram: { chatId: updated.telegram.chatId, enabled: updated.telegram.enabled },
     polling: updated.polling,
     zones: updated.zones,
+    watchdog: updated.watchdog,
   });
 });
 
@@ -207,6 +241,15 @@ app.get('/api/balances/:wallet', async (req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+app.get('/api/watchdog/status', (_req, res) => {
+  const summary = monitor.watchdog.getStatusSummary();
+  const log = monitor.watchdog.getLog();
+  res.json({
+    ...summary,
+    log,
+  });
 });
 
 // --- Telegram bot commands ---
@@ -330,15 +373,19 @@ telegram.onCommand('refresh', async (chatId) => {
   }
 });
 
+telegram.onCommand('watchdog', async (chatId) => {
+  const summary = monitor.watchdog.getStatusSummary();
+  const log = monitor.watchdog.getLog();
+  await telegram.sendMessage(chatId, formatWatchdogStatusMessage(summary, log));
+});
+
 telegram.onCommand('help', async (chatId) => {
   await telegram.sendMessage(
     chatId,
     [
       '<b>Aave Loan Monitor</b>',
       '',
-      '/status — Show portfolio totals, average health factor, and current loan health factors',
-      '/refresh — Force-refresh data and show updated status',
-      '/help — Show this help message',
+      ...TELEGRAM_BOT_COMMANDS.map((command) => `/${command.command} — ${command.description}`),
     ].join('\n'),
   );
 });

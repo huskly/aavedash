@@ -49,10 +49,10 @@ PORT=3001
 
 ```bash
 # Development (with auto-reload)
-npm run dev:server
+yarn dev:server
 
 # Or run both frontend and server
-npm run dev:all
+yarn dev:all
 ```
 
 The server starts on `http://localhost:3001`.
@@ -89,6 +89,10 @@ Telegram bot commands:
 
 - `/status` prints current loans plus a portfolio summary (average health factor, Net APY, total collateral, total debt, portfolio borrow power used, cash margin of safety in USD and %).
 - `/refresh` refreshes monitor state first, then prints the same enriched status output.
+- `/watchdog` prints watchdog mode, thresholds, and recent watchdog actions.
+- `/help` prints all available commands.
+
+The server automatically syncs this command menu to Telegram on startup using `setMyCommands`, so Telegram's slash-command list stays aligned with the backend handlers.
 
 ## Health Factor Zones
 

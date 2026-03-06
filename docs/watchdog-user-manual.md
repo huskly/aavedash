@@ -1,12 +1,12 @@
-# Watchdog User Manual (In Development)
+# Watchdog User Manual
 
-This guide explains how the Health Factor Watchdog is designed to work, what is already implemented, and how to operate it safely once full end-to-end wiring is complete.
+This guide explains how the Health Factor Watchdog works and how to operate it safely.
 
 ## Current Status
 
-The watchdog engine and config model are implemented and tested, but full runtime wiring is still in progress.
+The watchdog engine is fully wired end-to-end: config, evaluation engine, monitor integration, API endpoints, and Telegram commands are all operational.
 
-Implemented now:
+Implemented:
 
 - Watchdog config model and defaults in server storage
 - Stablecoin-only repay engine with:
@@ -17,13 +17,15 @@ Implemented now:
   - dry-run and live execution branches
   - per-loan cooldown logic
   - signer/private-key wallet address safety check
+- Monitor integration (watchdog runs after alert processing each poll)
+- Monitor runs when at least one wallet is enabled, even if Telegram alerts are disabled
+- `GET /api/watchdog/status` endpoint for status and recent log
+- Watchdog config exposed via `GET /api/config` and `PUT /api/config`
+- `/watchdog` Telegram command showing status and recent actions
 - Automated unit tests and CI coverage for watchdog logic
 
-Planned next (not fully wired end-to-end yet):
+Planned next:
 
-- Monitor integration pass (run watchdog after alerts)
-- API endpoints for watchdog status/config surface
-- Telegram watchdog command/status surface
 - Full UI workflow for watchdog controls
 
 ## What the Watchdog Does
@@ -64,10 +66,11 @@ Environment overrides:
 - `WATCHDOG_TARGET_HF`
 
 Both must be positive numbers to apply.
+`targetHF` must also be strictly greater than `triggerHF`.
 
 ## Private Key and Wallet Safety
 
-Live mode requires a private key (`WATCHDOG_PRIVATE_KEY`, planned runtime wiring).
+Live mode requires a private key set via `WATCHDOG_PRIVATE_KEY` environment variable in the root `.env` file.
 
 Safety rule:
 
@@ -125,6 +128,7 @@ Suggested starter values:
 No actions happening:
 
 - Check `enabled` and that adjusted HF is below `triggerHF`.
+- Confirm at least one monitored wallet is enabled in config.
 - Confirm debt asset is in supported stablecoin set.
 - Confirm cooldown is not active.
 
@@ -140,11 +144,22 @@ Repeated skips:
 - Review logs for reason (`gas too high`, `insufficient ETH`, `insufficient funds`, etc.).
 - Adjust config values cautiously.
 
-## Known Limitations (Current Phase)
+## API Endpoints
 
-- End-to-end monitor/API/Telegram command integration is still being finalized.
+- `GET /api/watchdog/status` — Returns watchdog config summary, `hasPrivateKey` flag, and recent action log.
+- `GET /api/config` — Includes `watchdog` section in the response.
+- `PUT /api/config` — Accepts partial `watchdog` object to update individual fields.
+
+## Telegram Commands
+
+- `/watchdog` — Shows current watchdog status (enabled, mode, trigger/target HF) and the 5 most recent actions.
+- `/help` — Lists all available commands including `/watchdog`.
+
+## Known Limitations
+
 - Manual validation is still required for real transaction flow in a safe test wallet before production use.
 - This is a mitigation tool, not a guarantee against liquidation.
+- UI workflow for watchdog controls is not yet implemented.
 
 ## Quick Safety Checklist
 

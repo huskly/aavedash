@@ -1,4 +1,8 @@
 export type CommandHandler = (chatId: string, args: string) => Promise<void>;
+export type TelegramBotCommand = {
+  command: string;
+  description: string;
+};
 
 type TelegramUpdate = {
   update_id: number;
@@ -21,6 +25,34 @@ export class TelegramClient {
 
   onCommand(command: string, handler: CommandHandler): void {
     this.commands.set(command, handler);
+  }
+
+  async syncCommands(commands: TelegramBotCommand[]): Promise<void> {
+    if (!this.botToken) return;
+
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${this.botToken}/setMyCommands`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ commands }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        console.error(`Telegram setMyCommands error (${response.status}): ${body}`);
+        return;
+      }
+
+      const data = (await response.json()) as { ok: boolean; description?: string };
+      if (!data.ok) {
+        console.error(`Telegram setMyCommands rejected: ${data.description ?? 'unknown error'}`);
+        return;
+      }
+
+      console.log(`Telegram commands synced (${commands.length})`);
+    } catch (error) {
+      console.error('Telegram setMyCommands failed:', error);
+    }
   }
 
   startCommandPolling(): void {

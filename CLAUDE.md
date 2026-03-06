@@ -27,6 +27,7 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `VITE_R_DEPLOY` — optional deploy APY rate (decimal, default 0.1125)
 - `VITE_BASE_PATH` — used in vite.config.ts for GitHub Pages deployment
 - `RPC_URL` — Ethereum JSON-RPC endpoint used by backend for on-chain reads (default `https://eth.llamarpc.com`)
+- `WATCHDOG_PRIVATE_KEY` — optional private key for watchdog live mode (auto-repay); omit for dry-run only
 - `TELEGRAM_BOT_TOKEN` — backend Telegram bot token (loaded from root `.env`)
 - `PORT` — optional backend port (default `3001`)
 
@@ -37,9 +38,12 @@ Backend server notes:
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
 - Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and cash margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
 - Telegram `/status` includes `Last updated` with absolute timestamp + relative time (e.g. `3 minutes ago`).
+- Telegram command metadata (`/status`, `/refresh`, `/watchdog`, `/help`) is synced on server startup via `setMyCommands`, so Telegram slash-command suggestions stay current.
 - Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
 - Fully paid-off / zero-value positions are filtered out of both dashboard data and Telegram status output.
-- Watchdog user-facing docs live in `docs/watchdog-user-manual.md`; document it as in-development until full Step 4+ runtime wiring is complete.
+- Watchdog user-facing docs live in `docs/watchdog-user-manual.md`.
+- Watchdog is fully wired: monitor integration, `GET /api/watchdog/status` endpoint, `/watchdog` Telegram command, and config via `GET/PUT /api/config`.
+- Monitor runtime is driven by enabled wallets (not Telegram enablement), so watchdog polling can run without Telegram configured.
 
 Frontend notes:
 
