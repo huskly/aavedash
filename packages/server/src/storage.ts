@@ -88,6 +88,13 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
   if (targetHF !== undefined) watchdog.targetHF = targetHF;
 }
 
+function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): WatchdogConfig {
+  return {
+    ...DEFAULT_WATCHDOG_CONFIG,
+    ...config,
+  };
+}
+
 export class ConfigStorage {
   private config: AlertConfig;
   private readonly filePath: string;
@@ -114,10 +121,8 @@ export class ConfigStorage {
           }
         }
       }
-      // Ensure watchdog config exists for older config files
-      if (!config.watchdog) {
-        config.watchdog = { ...DEFAULT_WATCHDOG_CONFIG };
-      }
+      // Merge with defaults to support older/partial persisted configs.
+      config.watchdog = mergeWatchdogConfig(config.watchdog);
       applyWatchdogEnvOverrides(config.watchdog);
       return config;
     } catch {
@@ -144,7 +149,12 @@ export class ConfigStorage {
     if (partial.telegram !== undefined) this.config.telegram = partial.telegram;
     if (partial.polling !== undefined) this.config.polling = partial.polling;
     if (partial.zones !== undefined) this.config.zones = partial.zones;
-    if (partial.watchdog !== undefined) this.config.watchdog = partial.watchdog;
+    if (partial.watchdog !== undefined) {
+      this.config.watchdog = mergeWatchdogConfig({
+        ...this.config.watchdog,
+        ...partial.watchdog,
+      });
+    }
     this.save();
     return this.config;
   }

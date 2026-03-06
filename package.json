@@ -16,7 +16,8 @@
     "format:check": "prettier --check .",
     "dev:server": "yarn workspace @aave-monitor/server dev",
     "dev:all": "yarn dev & yarn dev:server",
-    "build:server": "yarn workspace @aave-monitor/server build"
+    "build:server": "yarn workspace @aave-monitor/server build",
+    "test": "yarn workspace @aave-monitor/server test"
   },
   "dependencies": {
     "@aave-monitor/core": "*",

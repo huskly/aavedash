@@ -107,10 +107,17 @@ yarn dev:all       # start both frontend and server
 yarn typecheck     # TypeScript checks (frontend + core package + server package)
 yarn lint          # ESLint
 yarn format        # Prettier format
+yarn test          # Server watchdog/config test suite
 yarn build         # production frontend build
 yarn build:server  # production server build
 yarn preview       # preview production build
 ```
+
+Server test suite details:
+
+- Location: `packages/server/test/*.test.ts`
+- Runner: Node built-in test runner via `tsx --test`
+- Current coverage focus: watchdog execution/cooldown behavior and watchdog config migration/merge logic
 
 ## Docker Compose
 

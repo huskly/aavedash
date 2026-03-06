@@ -12,6 +12,7 @@ yarn typecheck     # frontend + backend workspace TypeScript checks
 yarn lint          # eslint
 yarn format        # prettier --write
 yarn format:check  # prettier --check
+yarn test          # server watchdog/config tests (node:test via tsx)
 ```
 
 Always run `typecheck`, `lint`, and `format` before finishing changes. Also make sure you check
@@ -61,7 +62,7 @@ Supporting files:
 - `src/components/ui/` — shadcn/ui-style primitives (Button, Card, Badge, Input, Separator)
 - `src/lib/utils.ts` — `cn()` utility (clsx + tailwind-merge)
 
-There are no tests, no routing, no state management library, and no API abstraction layer. The app is self-contained with external data coming from The Graph and CoinGecko APIs.
+Testing currently exists for backend watchdog/config behavior in `packages/server/test/*.test.ts` and runs with `yarn test`. There is still no routing, no state management library, and no API abstraction layer. The app is self-contained with external data coming from The Graph and CoinGecko APIs.
 
 ## Deployment
 
