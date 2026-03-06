@@ -106,6 +106,7 @@ The server automatically syncs this command menu to Telegram on startup using `s
 | Critical | < 1.15     | Emergency repay / add collateral |
 
 Zone thresholds are configurable via the UI settings panel or the `PUT /api/config` endpoint.
+For the open-ended top zone (`safe`), `maxHF` may be sent as `null` in JSON and is normalized to `Infinity` by the backend.
 
 ## Anti-Spam Rules
 

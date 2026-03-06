@@ -42,7 +42,7 @@ const partialAlertConfigSchema = z
       z.object({
         name: z.enum(['safe', 'comfort', 'watch', 'alert', 'action', 'critical']),
         minHF: z.number(),
-        maxHF: z.number(),
+        maxHF: z.union([z.number(), z.null()]).transform((value) => value ?? Infinity),
       }),
     ),
     watchdog: z

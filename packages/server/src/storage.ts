@@ -73,6 +73,13 @@ function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): Watch
   };
 }
 
+function normalizeZones(zones: AlertConfig['zones']): AlertConfig['zones'] {
+  return zones.map((zone) => ({
+    ...zone,
+    maxHF: Number.isFinite(zone.maxHF) ? zone.maxHF : Infinity,
+  }));
+}
+
 export class ConfigStorage {
   private config: AlertConfig;
   private readonly filePath: string;
@@ -92,13 +99,7 @@ export class ConfigStorage {
       const raw = readFileSync(this.filePath, 'utf-8');
       const config = JSON.parse(raw) as AlertConfig;
       // JSON.stringify turns Infinity into null; restore it on load
-      if (config.zones) {
-        for (const zone of config.zones) {
-          if (zone.maxHF === null || zone.maxHF === undefined) {
-            zone.maxHF = Infinity;
-          }
-        }
-      }
+      if (config.zones) config.zones = normalizeZones(config.zones);
       // Merge with defaults to support older/partial persisted configs.
       config.watchdog = mergeWatchdogConfig(config.watchdog);
       applyWatchdogEnvOverrides(config.watchdog);
@@ -128,7 +129,7 @@ export class ConfigStorage {
     if (partial.wallets !== undefined) this.config.wallets = partial.wallets;
     if (partial.telegram !== undefined) this.config.telegram = partial.telegram;
     if (partial.polling !== undefined) this.config.polling = partial.polling;
-    if (partial.zones !== undefined) this.config.zones = partial.zones;
+    if (partial.zones !== undefined) this.config.zones = normalizeZones(partial.zones);
     if (partial.watchdog !== undefined) {
       this.config.watchdog = mergeWatchdogConfig({
         ...this.config.watchdog,

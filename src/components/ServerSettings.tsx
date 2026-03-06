@@ -74,6 +74,11 @@ function validateConfig(config: AlertConfig): string | null {
 }
 
 function normalizeConfig(config: Partial<AlertConfig> | null | undefined): AlertConfig {
+  const zones = (config?.zones ?? DEFAULT_ZONE_CONFIG).map((zone) => ({
+    ...zone,
+    maxHF: Number.isFinite(zone.maxHF) ? zone.maxHF : Infinity,
+  }));
+
   return {
     wallets: config?.wallets ?? [],
     telegram: {
@@ -84,7 +89,7 @@ function normalizeConfig(config: Partial<AlertConfig> | null | undefined): Alert
       ...DEFAULT_POLLING_CONFIG,
       ...(config?.polling ?? {}),
     },
-    zones: config?.zones ?? DEFAULT_ZONE_CONFIG,
+    zones,
     watchdog: {
       ...DEFAULT_WATCHDOG_CONFIG,
       ...(config?.watchdog ?? {}),

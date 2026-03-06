@@ -87,3 +87,23 @@ test('update() merges partial watchdog payload with existing watchdog config', (
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('update() restores Infinity for zones with null maxHF', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aash-storage-test-'));
+  const configPath = join(dir, 'config.json');
+
+  try {
+    const storage = new ConfigStorage(configPath);
+    const updatedZones = createBaseConfig().zones.map((zone) =>
+      zone.name === 'safe' ? ({ ...zone, maxHF: null } as unknown as typeof zone) : zone,
+    );
+
+    storage.update({ zones: updatedZones });
+
+    const safeZone = storage.get().zones.find((zone) => zone.name === 'safe');
+    assert.ok(safeZone);
+    assert.equal(safeZone.maxHF, Infinity);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
