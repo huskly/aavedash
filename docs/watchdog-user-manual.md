@@ -21,12 +21,9 @@ Implemented:
 - Monitor runs when at least one wallet is enabled, even if Telegram alerts are disabled
 - `GET /api/watchdog/status` endpoint for status and recent log
 - Watchdog config exposed via `GET /api/config` and `PUT /api/config`
+- Dashboard settings panel supports watchdog configuration (enable/dry-run/thresholds/caps)
 - `/watchdog` Telegram command showing status and recent actions
 - Automated unit tests and CI coverage for watchdog logic
-
-Planned next:
-
-- Full UI workflow for watchdog controls
 
 ## What the Watchdog Does
 
@@ -67,6 +64,13 @@ Environment overrides:
 
 Both must be positive numbers to apply.
 `targetHF` must also be strictly greater than `triggerHF`.
+
+UI configuration:
+
+- Open the dashboard settings panel from the bell icon.
+- Expand `Watchdog`.
+- Edit fields and toggle enable/dry-run directly in the panel.
+- Client-side validation blocks invalid saves (for example `targetHF <= triggerHF` or non-positive values).
 
 ## Private Key and Wallet Safety
 
@@ -159,7 +163,6 @@ Repeated skips:
 
 - Manual validation is still required for real transaction flow in a safe test wallet before production use.
 - This is a mitigation tool, not a guarantee against liquidation.
-- UI workflow for watchdog controls is not yet implemented.
 
 ## Quick Safety Checklist
 

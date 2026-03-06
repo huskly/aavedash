@@ -42,7 +42,7 @@ Backend server notes:
 - Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
 - Fully paid-off / zero-value positions are filtered out of both dashboard data and Telegram status output.
 - Watchdog user-facing docs live in `docs/watchdog-user-manual.md`.
-- Watchdog is fully wired: monitor integration, `GET /api/watchdog/status` endpoint, `/watchdog` Telegram command, and config via `GET/PUT /api/config`.
+- Watchdog is fully wired: monitor integration, `GET /api/watchdog/status` endpoint, `/watchdog` Telegram command, config via `GET/PUT /api/config`, and dashboard settings controls for watchdog fields.
 - Monitor runtime is driven by enabled wallets (not Telegram enablement), so watchdog polling can run without Telegram configured.
 
 Frontend notes:

@@ -30,7 +30,7 @@ import {
   fetchUsdPrices,
   buildLoanPositions,
 } from '@aave-monitor/core';
-import { NotificationBell } from './components/NotificationSettings';
+import { ServerSettings } from './components/ServerSettings';
 
 const GRAPH_API_KEY = import.meta.env.VITE_THE_GRAPH_API_KEY as string | undefined;
 const COINGECKO_API_KEY = import.meta.env.VITE_COINGECKO_API_KEY as string | undefined;
@@ -281,7 +281,7 @@ export default function App() {
               Auto-fetched from wallet address using public blockchain data and price APIs.
             </p>
           </div>
-          <NotificationBell />
+          <ServerSettings />
         </header>
 
         <section className="mt-4 rounded-[18px] border border-[rgba(168,191,217,0.22)] bg-[linear-gradient(140deg,rgba(11,24,39,0.82),rgba(9,16,28,0.6))] p-4 backdrop-blur-[8px]">

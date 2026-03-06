@@ -185,6 +185,7 @@ The watchdog monitors loan health and can automatically repay stablecoin debt to
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog section in `GET/PUT /api/config`
+- Dashboard UI: bell settings panel includes watchdog controls with client-side validation
 
 ## How It Works
 
