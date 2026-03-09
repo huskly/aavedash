@@ -7,6 +7,8 @@ type WatchdogStatusSummary = {
   hasPrivateKey: boolean;
   triggerHF: number;
   targetHF: number;
+  minResultingHF: number;
+  rescueContract: string;
   recentActions: number;
 };
 
@@ -23,6 +25,15 @@ export function validateWatchdogThresholds(
   const merged = { ...current, ...partial };
   if (merged.targetHF <= merged.triggerHF) {
     return 'watchdog.targetHF must be greater than watchdog.triggerHF';
+  }
+  if (merged.minResultingHF <= merged.triggerHF) {
+    return 'watchdog.minResultingHF must be greater than watchdog.triggerHF';
+  }
+  if (merged.minResultingHF > merged.targetHF) {
+    return 'watchdog.minResultingHF must be less than or equal to watchdog.targetHF';
+  }
+  if (merged.enabled && !/^0x[a-fA-F0-9]{40}$/.test(merged.rescueContract)) {
+    return 'watchdog.rescueContract must be a valid Ethereum address when watchdog is enabled';
   }
 
   return null;
@@ -41,6 +52,8 @@ export function formatWatchdogStatusMessage(
     `Private Key: <b>${summary.hasPrivateKey ? 'Configured' : 'Not set'}</b>`,
     `Trigger HF: <b>${summary.triggerHF}</b>`,
     `Target HF: <b>${summary.targetHF}</b>`,
+    `Min resulting HF: <b>${summary.minResultingHF}</b>`,
+    `Rescue contract: <b>${summary.rescueContract || 'Not set'}</b>`,
     `Total actions logged: ${summary.recentActions}`,
   ];
 

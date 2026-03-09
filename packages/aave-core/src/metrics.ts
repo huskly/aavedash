@@ -117,16 +117,6 @@ export function computeAdjustedHF(loan: LoanPosition): AdjustedHFResult {
   };
 }
 
-export function computeRepaymentAmount(
-  targetHF: number,
-  adjustedCollateralUSD: number,
-  adjustedLt: number,
-  currentDebt: number,
-): number {
-  const repay = currentDebt - (adjustedCollateralUSD * adjustedLt) / targetHF;
-  return Math.max(0, repay);
-}
-
 export function computeLoanMetrics(loan: LoanPosition | null, rDeploy: number): Computed {
   if (!loan) {
     return {

@@ -12,8 +12,11 @@ export type WatchdogConfig = {
   dryRun: boolean;
   triggerHF: number;
   targetHF: number;
+  minResultingHF: number;
   cooldownMs: number;
-  maxRepayUsd: number;
+  maxTopUpWbtc: number;
+  deadlineSeconds: number;
+  rescueContract: string;
   maxGasGwei: number;
 };
 

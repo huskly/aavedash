@@ -110,6 +110,7 @@ yarn typecheck     # TypeScript checks (frontend + core package + server package
 yarn lint          # ESLint
 yarn format        # Prettier format
 yarn test          # Server watchdog/config test suite
+yarn test:contracts # Foundry smart contract tests (packages/rescue-contract)
 yarn build         # production frontend build
 yarn build:server  # production server build
 yarn preview       # preview production build
@@ -172,20 +173,22 @@ Quick start:
 4. Use the bell icon in the dashboard to configure alerts.
 5. If monitor status appears stale, trigger an immediate refresh with `POST /api/status/refresh` (see docs).
 
-## Watchdog (Auto-Repay)
+## Watchdog (Atomic Rescue v1)
 
-Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual.md)**.
+Detailed user manual: **[docs/watchdog-user-manual.md](docs/watchdog-user-manual.md)**.  
+Deployment/ops runbook: **[docs/rescue-v1-ops.md](docs/rescue-v1-ops.md)**.
 
-The watchdog monitors loan health and can automatically repay stablecoin debt to prevent liquidation. It uses an "adjusted HF" that excludes same-asset collateral to make safe repay decisions.
+The watchdog monitors loan health and can execute an atomic on-chain rescue when HF drops below threshold. It computes a WBTC top-up amount and submits a single `rescue(...)` transaction to the rescue contract.
 
 - Runs after each monitor poll, evaluating all loans
 - Monitor polling runs when at least one wallet is enabled (Telegram can stay disabled)
 - Dry-run mode by default (notifies what _would_ happen, no on-chain transactions)
 - Live mode requires `WATCHDOG_PRIVATE_KEY` env var
+- Live mode also requires WBTC allowance from monitored wallet to the configured rescue contract
 - API: `GET /api/watchdog/status` for status and recent action log
 - Telegram: `/watchdog` command for status and recent actions
 - Config: watchdog section in `GET/PUT /api/config`
-- Dashboard UI: bell settings panel includes watchdog controls with client-side validation
+- Dashboard UI: bell settings panel includes rescue contract, HF thresholds, WBTC cap, deadline, gas cap
 
 ## How It Works
 

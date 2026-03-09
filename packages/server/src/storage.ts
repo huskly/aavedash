@@ -64,6 +64,12 @@ function applyWatchdogEnvOverrides(watchdog: WatchdogConfig): void {
 
   const targetHF = parseEnvFloat('WATCHDOG_TARGET_HF');
   if (targetHF !== undefined) watchdog.targetHF = targetHF;
+
+  const minResultingHF = parseEnvFloat('WATCHDOG_MIN_RESULTING_HF');
+  if (minResultingHF !== undefined) watchdog.minResultingHF = minResultingHF;
+
+  const maxTopUpWbtc = parseEnvFloat('WATCHDOG_MAX_TOP_UP_WBTC');
+  if (maxTopUpWbtc !== undefined) watchdog.maxTopUpWbtc = maxTopUpWbtc;
 }
 
 function mergeWatchdogConfig(config: Partial<WatchdogConfig> | undefined): WatchdogConfig {

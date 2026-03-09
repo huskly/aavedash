@@ -301,7 +301,7 @@ export class Monitor {
 
     // Watchdog evaluation pass — runs after alerts so notifications always go out first
     for (const loan of loans) {
-      await this.watchdog.evaluate(loan, address, walletStablecoinBalances);
+      await this.watchdog.evaluate(loan, address);
     }
 
     const walletPrefix = `${address}-`;

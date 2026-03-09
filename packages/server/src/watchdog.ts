@@ -1,48 +1,40 @@
-import {
-  type AdjustedHFResult,
-  type LoanPosition,
-  computeAdjustedHF,
-  computeRepaymentAmount,
-  STABLECOIN_SYMBOLS,
-  STABLECOIN_CONTRACTS,
-} from '@aave-monitor/core';
+import { computeLoanMetrics, DEFAULT_R_DEPLOY, type LoanPosition } from '@aave-monitor/core';
+import { formatUnits, Interface, JsonRpcProvider, parseUnits, Wallet } from 'ethers';
 import type { WatchdogConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
 
-const AAVE_V3_POOL = '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2';
+const WBTC_CONTRACT = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599';
+const WBTC_DECIMALS = 8;
 
-// Minimal ABI function selectors
-const SELECTORS = {
-  // withdraw(address asset, uint256 amount, address to) returns (uint256)
-  withdraw: '0x69328dec',
-  // repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) returns (uint256)
-  repay: '0x573ade81',
-  // approve(address spender, uint256 amount) returns (bool)
-  approve: '0x095ea7b3',
-  // allowance(address owner, address spender) returns (uint256)
-  allowance: '0xdd62ed3e',
-} as const;
+const ERC20_INTERFACE = new Interface([
+  'function balanceOf(address owner) view returns (uint256)',
+  'function allowance(address owner, address spender) view returns (uint256)',
+]);
 
+const RESCUE_INTERFACE = new Interface([
+  'function rescue((address user,address asset,uint256 amount,uint256 minResultingHF,uint256 deadline) params)',
+  'function previewResultingHF(address user, address asset, uint256 amount) view returns (uint256)',
+]);
+
+const MIN_ETH_FOR_GAS = 0.005;
 export type WatchdogLogEntry = {
   timestamp: number;
   loanId: string;
   wallet: string;
-  action: 'dry-run' | 'repay' | 'withdraw+repay' | 'skipped';
+  action: 'dry-run' | 'rescue' | 'skipped';
   reason: string;
-  adjustedHF: number;
-  repayAmountUsd: number;
-  txHashes?: string[];
+  healthFactor: number;
+  topUpWbtc: number;
+  projectedHF: number;
+  txHash?: string;
 };
-
-type ExecuteRepayResult =
-  | { status: 'executed'; walletSpent: number }
-  | { status: 'skipped' }
-  | { status: 'failed'; hadPartialExecution: boolean };
 
 export class Watchdog {
   private cooldowns = new Map<string, number>();
   private readonly log: WatchdogLogEntry[] = [];
   private readonly maxLogEntries = 50;
+  private provider?: JsonRpcProvider;
+  private wallet?: Wallet;
 
   constructor(
     private readonly telegram: TelegramClient,
@@ -62,6 +54,8 @@ export class Watchdog {
     hasPrivateKey: boolean;
     triggerHF: number;
     targetHF: number;
+    minResultingHF: number;
+    rescueContract: string;
     recentActions: number;
   } {
     const config = this.getConfig();
@@ -71,86 +65,149 @@ export class Watchdog {
       hasPrivateKey: Boolean(this.privateKey),
       triggerHF: config.triggerHF,
       targetHF: config.targetHF,
+      minResultingHF: config.minResultingHF,
+      rescueContract: config.rescueContract,
       recentActions: this.log.length,
     };
   }
 
-  async evaluate(
-    loan: LoanPosition,
-    walletAddress: string,
-    walletBalances: Map<string, number>,
-  ): Promise<void> {
+  async evaluate(loan: LoanPosition, walletAddress: string): Promise<void> {
     const config = this.getConfig();
 
     if (!config.enabled) return;
 
-    // Only handle stablecoin debt
-    if (!STABLECOIN_SYMBOLS.has(loan.borrowed.symbol)) return;
+    const healthFactor = computeLoanMetrics(loan, DEFAULT_R_DEPLOY).healthFactor;
+    if (!Number.isFinite(healthFactor) || healthFactor >= config.triggerHF) {
+      return;
+    }
 
-    const adjusted = computeAdjustedHF(loan);
+    const rescueContract = config.rescueContract.trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(rescueContract)) {
+      this.addLog({
+        timestamp: Date.now(),
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: 'Invalid or missing rescueContract in watchdog config',
+        healthFactor,
+        topUpWbtc: 0,
+        projectedHF: healthFactor,
+      });
+      return;
+    }
 
-    if (adjusted.adjustedHF >= config.triggerHF) return;
-
-    // Check cooldown
+    const now = Date.now();
     const stateKey = `${walletAddress}-${loan.id}`;
     const lastAction = this.cooldowns.get(stateKey) ?? 0;
-    const now = Date.now();
     if (now - lastAction < config.cooldownMs) {
       const remainingMs = config.cooldownMs - (now - lastAction);
-      console.log(
-        `[Watchdog] Cooldown active for ${stateKey}, skipping (${Math.round(remainingMs / 1000)}s remaining)`,
-      );
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         action: 'skipped',
         reason: `Cooldown active: ${Math.round(remainingMs / 1000)}s remaining`,
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: 0,
+        healthFactor,
+        topUpWbtc: 0,
+        projectedHF: healthFactor,
       });
       return;
     }
 
-    const repayAmount = computeRepaymentAmount(
-      config.targetHF,
-      adjusted.adjustedCollateralUSD,
-      adjusted.adjustedLt,
-      adjusted.debt,
-    );
+    const provider = this.getProvider();
+    const [walletBalanceRaw, allowanceRaw] = await Promise.all([
+      this.getTokenBalance(provider, WBTC_CONTRACT, walletAddress),
+      this.getTokenAllowance(provider, WBTC_CONTRACT, walletAddress, rescueContract),
+    ]);
 
-    if (repayAmount <= 0) return;
-
-    const cappedRepayUsd = Math.min(repayAmount, config.maxRepayUsd);
-    // Since we're repaying stablecoins, amount ~= USD value
-    const cappedRepayAmount = cappedRepayUsd;
-
-    // Determine funding source
-    const walletBalance = walletBalances.get(loan.borrowed.symbol) ?? 0;
-    const needFromWithdraw = Math.max(0, cappedRepayAmount - walletBalance);
-    const withdrawAmount = Math.min(needFromWithdraw, adjusted.sameAssetSuppliedAmount);
-    const totalAvailable = walletBalance + withdrawAmount;
-    const actualRepayAmount = Math.min(cappedRepayAmount, totalAvailable);
-
-    if (actualRepayAmount <= 0.01) {
+    const maxTopUpRaw = parseUnits(config.maxTopUpWbtc.toFixed(WBTC_DECIMALS), WBTC_DECIMALS);
+    const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);
+    if (availableRaw <= 0n) {
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         action: 'skipped',
-        reason: `Insufficient funds: wallet=${walletBalance.toFixed(2)}, withdrawable=${adjusted.sameAssetSuppliedAmount.toFixed(2)}`,
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: 0,
+        reason: 'No available WBTC (balance/allowance/maxTopUp all exhausted)',
+        healthFactor,
+        topUpWbtc: 0,
+        projectedHF: healthFactor,
       });
       await this.notify(
-        `\u{1F6A8} <b>Watchdog: Insufficient funds</b>\n\n` +
-          `Loan ${loan.id} needs ${cappedRepayUsd.toFixed(2)} ${loan.borrowed.symbol} repayment\n` +
-          `Wallet: ${walletBalance.toFixed(2)} ${loan.borrowed.symbol}\n` +
-          `Withdrawable: ${adjusted.sameAssetSuppliedAmount.toFixed(2)} ${loan.borrowed.symbol}\n` +
-          `Adjusted HF: ${adjusted.adjustedHF.toFixed(4)}`,
+        `🚨 <b>Watchdog: WBTC unavailable</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `HF: <b>${healthFactor.toFixed(4)}</b>\n` +
+          `Wallet WBTC: ${formatUnits(walletBalanceRaw, WBTC_DECIMALS)}\n` +
+          `Allowance WBTC: ${formatUnits(allowanceRaw, WBTC_DECIMALS)}`,
       );
       return;
     }
+
+    const targetHFWad = this.toWad(config.targetHF);
+    const minHFWad = this.toWad(config.minResultingHF);
+
+    let amountRaw = await this.findRequiredAmountRaw(
+      provider,
+      rescueContract,
+      walletAddress,
+      targetHFWad,
+      availableRaw,
+    );
+
+    if (amountRaw === null) {
+      amountRaw = await this.findRequiredAmountRaw(
+        provider,
+        rescueContract,
+        walletAddress,
+        minHFWad,
+        availableRaw,
+      );
+    }
+
+    if (amountRaw === null || amountRaw <= 0n) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: 'Insufficient WBTC to achieve minimum resulting HF',
+        healthFactor,
+        topUpWbtc: 0,
+        projectedHF: healthFactor,
+      });
+      await this.notify(
+        `🚨 <b>Watchdog: Rescue not feasible</b>\n\n` +
+          `Loan: ${loan.id} (${loan.marketName})\n` +
+          `Current HF: <b>${healthFactor.toFixed(4)}</b>\n` +
+          `Max usable WBTC: ${formatUnits(availableRaw, WBTC_DECIMALS)}\n` +
+          `Min resulting HF: ${config.minResultingHF}`,
+      );
+      return;
+    }
+
+    const projectedHFWad = await this.previewResultingHF(
+      provider,
+      rescueContract,
+      walletAddress,
+      amountRaw,
+    );
+
+    if (projectedHFWad < minHFWad) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: 'Projected HF below minimum resulting HF threshold',
+        healthFactor,
+        topUpWbtc: this.toNumberAmount(amountRaw),
+        projectedHF: this.wadToNumber(projectedHFWad),
+      });
+      return;
+    }
+
+    const topUpWbtc = this.toNumberAmount(amountRaw);
+    const projectedHF = this.wadToNumber(projectedHFWad);
 
     if (config.dryRun) {
       this.addLog({
@@ -158,290 +215,251 @@ export class Watchdog {
         loanId: loan.id,
         wallet: walletAddress,
         action: 'dry-run',
-        reason:
-          `Would repay ${actualRepayAmount.toFixed(2)} ${loan.borrowed.symbol}` +
-          (withdrawAmount > 0 ? ` (withdraw ${withdrawAmount.toFixed(2)} first)` : ''),
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: actualRepayAmount,
+        reason: `Would submit atomic rescue with ${topUpWbtc.toFixed(8)} WBTC`,
+        healthFactor,
+        topUpWbtc,
+        projectedHF,
       });
       this.cooldowns.set(stateKey, now);
-
       await this.notify(
-        `\u{1F9EA} <b>Watchdog DRY RUN</b>\n\n` +
+        `🧪 <b>Watchdog DRY RUN</b>\n\n` +
           `Loan: ${loan.id} (${loan.marketName})\n` +
-          `Adjusted HF: <b>${adjusted.adjustedHF.toFixed(4)}</b> (trigger: ${config.triggerHF})\n` +
-          `Target HF: ${config.targetHF}\n\n` +
-          `Would repay: <b>${actualRepayAmount.toFixed(2)} ${loan.borrowed.symbol}</b>\n` +
-          (withdrawAmount > 0
-            ? `Would withdraw: ${withdrawAmount.toFixed(2)} ${loan.borrowed.symbol}\n`
-            : '') +
-          `Wallet balance: ${walletBalance.toFixed(2)} ${loan.borrowed.symbol}`,
+          `Current HF: <b>${healthFactor.toFixed(4)}</b> (trigger: ${config.triggerHF})\n` +
+          `Target HF: ${config.targetHF}\n` +
+          `Min resulting HF: ${config.minResultingHF}\n\n` +
+          `Would top-up: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+          `Projected HF: <b>${projectedHF.toFixed(4)}</b>`,
       );
       return;
     }
 
-    // Live mode
     if (!this.privateKey) {
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         action: 'skipped',
-        reason: 'No private key configured for live execution',
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: 0,
+        reason: 'No private key configured for live rescue execution',
+        healthFactor,
+        topUpWbtc,
+        projectedHF,
       });
       return;
     }
 
-    const result = await this.executeRepay(
-      loan,
+    const gasPriceGwei = await this.getGasPriceGwei(provider);
+    if (gasPriceGwei > config.maxGasGwei) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: `Gas price ${gasPriceGwei.toFixed(1)} gwei exceeds max ${config.maxGasGwei} gwei`,
+        healthFactor,
+        topUpWbtc,
+        projectedHF,
+      });
+      await this.notify(
+        `⛽ <b>Watchdog: Gas too high</b>\n\n` +
+          `Current: ${gasPriceGwei.toFixed(1)} gwei (max: ${config.maxGasGwei})\n` +
+          `Skipping rescue for ${topUpWbtc.toFixed(8)} WBTC`,
+      );
+      return;
+    }
+
+    const ethBalance = await this.getEthBalance(provider, walletAddress);
+    if (ethBalance < MIN_ETH_FOR_GAS) {
+      this.addLog({
+        timestamp: now,
+        loanId: loan.id,
+        wallet: walletAddress,
+        action: 'skipped',
+        reason: `Insufficient ETH for gas: ${ethBalance.toFixed(6)} ETH`,
+        healthFactor,
+        topUpWbtc,
+        projectedHF,
+      });
+      await this.notify(
+        `⛽ <b>Watchdog: Insufficient ETH for gas</b>\n\n` +
+          `Balance: ${ethBalance.toFixed(6)} ETH\n` +
+          `Skipping rescue for ${topUpWbtc.toFixed(8)} WBTC`,
+      );
+      return;
+    }
+
+    const deadline = Math.floor(Date.now() / 1000) + config.deadlineSeconds;
+    const txHash = await this.submitRescueTransaction(
       walletAddress,
-      adjusted,
-      actualRepayAmount,
-      withdrawAmount,
-      config,
+      rescueContract,
+      amountRaw,
+      minHFWad,
+      deadline,
     );
 
-    if (result.status === 'executed') {
-      this.cooldowns.set(stateKey, Date.now());
+    this.addLog({
+      timestamp: now,
+      loanId: loan.id,
+      wallet: walletAddress,
+      action: 'rescue',
+      reason: `Rescue submitted with ${topUpWbtc.toFixed(8)} WBTC`,
+      healthFactor,
+      topUpWbtc,
+      projectedHF,
+      txHash,
+    });
+    this.cooldowns.set(stateKey, Date.now());
 
-      // Update wallet balances only when repay executed successfully.
-      const currentBalance = walletBalances.get(loan.borrowed.symbol) ?? 0;
-      walletBalances.set(loan.borrowed.symbol, Math.max(0, currentBalance - result.walletSpent));
-      return;
-    }
-
-    // Keep cooldown after partial execution (e.g. withdraw succeeded, repay failed)
-    // to avoid immediate retries while on-chain state settles.
-    if (result.status === 'failed' && result.hadPartialExecution) {
-      this.cooldowns.set(stateKey, Date.now());
-    }
+    await this.notify(
+      `✅ <b>Watchdog: Atomic rescue executed</b>\n\n` +
+        `Loan: ${loan.id} (${loan.marketName})\n` +
+        `Top-up: <b>${topUpWbtc.toFixed(8)} WBTC</b>\n` +
+        `Projected HF: <b>${projectedHF.toFixed(4)}</b>\n` +
+        `Tx: <code>${txHash}</code>`,
+    );
   }
 
-  private async executeRepay(
-    loan: LoanPosition,
-    walletAddress: string,
-    adjusted: AdjustedHFResult,
-    repayAmount: number,
-    withdrawAmount: number,
-    config: WatchdogConfig,
-  ): Promise<ExecuteRepayResult> {
-    const now = Date.now();
-    const txHashes: string[] = [];
-    const symbol = loan.borrowed.symbol;
-    const contract = STABLECOIN_CONTRACTS[symbol];
-    if (!contract) {
-      this.addLog({
-        timestamp: now,
-        loanId: loan.id,
-        wallet: walletAddress,
-        action: 'skipped',
-        reason: `Unknown stablecoin contract for ${symbol}`,
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: 0,
-      });
-      return { status: 'skipped' };
-    }
+  private async findRequiredAmountRaw(
+    provider: JsonRpcProvider,
+    rescueContract: string,
+    user: string,
+    targetHF: bigint,
+    maxAmount: bigint,
+  ): Promise<bigint | null> {
+    if (maxAmount <= 0n) return null;
 
-    try {
-      // Check gas price
-      const gasPrice = await this.getGasPrice();
-      const gasPriceGwei = gasPrice / 1e9;
-      if (gasPriceGwei > config.maxGasGwei) {
-        this.addLog({
-          timestamp: now,
-          loanId: loan.id,
-          wallet: walletAddress,
-          action: 'skipped',
-          reason: `Gas price ${gasPriceGwei.toFixed(1)} gwei exceeds max ${config.maxGasGwei} gwei`,
-          adjustedHF: adjusted.adjustedHF,
-          repayAmountUsd: repayAmount,
-        });
-        await this.notify(
-          `\u{26FD} <b>Watchdog: Gas too high</b>\n\n` +
-            `Current: ${gasPriceGwei.toFixed(1)} gwei (max: ${config.maxGasGwei})\n` +
-            `Skipping repayment of ${repayAmount.toFixed(2)} ${symbol}`,
-        );
-        return { status: 'skipped' };
+    const currentHF = await this.previewResultingHF(provider, rescueContract, user, 0n);
+    if (currentHF >= targetHF) return 0n;
+
+    const maxHF = await this.previewResultingHF(provider, rescueContract, user, maxAmount);
+    if (maxHF < targetHF) return null;
+
+    let low = 0n;
+    let high = maxAmount;
+
+    while (low + 1n < high) {
+      const mid = (low + high) / 2n;
+      const hf = await this.previewResultingHF(provider, rescueContract, user, mid);
+      if (hf >= targetHF) {
+        high = mid;
+      } else {
+        low = mid;
       }
-
-      // Check ETH balance for gas
-      const ethBalance = await this.getEthBalance(walletAddress);
-      if (ethBalance < 0.005) {
-        this.addLog({
-          timestamp: now,
-          loanId: loan.id,
-          wallet: walletAddress,
-          action: 'skipped',
-          reason: `Insufficient ETH for gas: ${ethBalance.toFixed(6)} ETH`,
-          adjustedHF: adjusted.adjustedHF,
-          repayAmountUsd: repayAmount,
-        });
-        await this.notify(
-          `\u{26FD} <b>Watchdog: Insufficient ETH for gas</b>\n\n` +
-            `Balance: ${ethBalance.toFixed(6)} ETH\n` +
-            `Skipping repayment of ${repayAmount.toFixed(2)} ${symbol}`,
-        );
-        return { status: 'skipped' };
-      }
-
-      const repayRaw = amountToHex(repayAmount, contract.decimals);
-
-      // Step 1: Withdraw same-asset supply if needed
-      if (withdrawAmount > 0) {
-        const withdrawRaw = amountToHex(withdrawAmount, contract.decimals);
-        const withdrawData = encodeFunctionCall(SELECTORS.withdraw, [
-          contract.address,
-          withdrawRaw,
-          walletAddress,
-        ]);
-        const withdrawTx = await this.sendTransaction(walletAddress, AAVE_V3_POOL, withdrawData);
-        txHashes.push(withdrawTx);
-        console.log(`[Watchdog] Withdraw tx: ${withdrawTx}`);
-      }
-
-      // Step 2: Check/set ERC20 allowance
-      const allowance = await this.getAllowance(contract.address, walletAddress, AAVE_V3_POOL);
-      const repayRawBigInt = BigInt(repayRaw);
-      if (allowance < repayRawBigInt) {
-        const maxApproval = '0x' + 'f'.repeat(64);
-        const approveData = encodeFunctionCall(SELECTORS.approve, [AAVE_V3_POOL, maxApproval]);
-        const approveTx = await this.sendTransaction(walletAddress, contract.address, approveData);
-        txHashes.push(approveTx);
-        console.log(`[Watchdog] Approve tx: ${approveTx}`);
-      }
-
-      // Step 3: Repay
-      const interestRateMode = '0x' + '2'.padStart(64, '0'); // variable rate
-      const repayData = encodeFunctionCall(SELECTORS.repay, [
-        contract.address,
-        repayRaw,
-        interestRateMode,
-        walletAddress,
-      ]);
-      const repayTx = await this.sendTransaction(walletAddress, AAVE_V3_POOL, repayData);
-      txHashes.push(repayTx);
-      console.log(`[Watchdog] Repay tx: ${repayTx}`);
-
-      const action = withdrawAmount > 0 ? 'withdraw+repay' : 'repay';
-      this.addLog({
-        timestamp: now,
-        loanId: loan.id,
-        wallet: walletAddress,
-        action,
-        reason: `Repaid ${repayAmount.toFixed(2)} ${symbol}`,
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: repayAmount,
-        txHashes,
-      });
-
-      await this.notify(
-        `\u{2705} <b>Watchdog: Repayment executed</b>\n\n` +
-          `Loan: ${loan.id} (${loan.marketName})\n` +
-          `Repaid: <b>${repayAmount.toFixed(2)} ${symbol}</b>\n` +
-          (withdrawAmount > 0 ? `Withdrew: ${withdrawAmount.toFixed(2)} ${symbol}\n` : '') +
-          `Adjusted HF was: ${adjusted.adjustedHF.toFixed(4)}\n` +
-          `Tx: ${txHashes.map((h) => `<code>${h}</code>`).join('\n')}`,
-      );
-      return { status: 'executed', walletSpent: Math.max(0, repayAmount - withdrawAmount) };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.addLog({
-        timestamp: now,
-        loanId: loan.id,
-        wallet: walletAddress,
-        action: 'skipped',
-        reason: `Execution failed: ${message}`,
-        adjustedHF: adjusted.adjustedHF,
-        repayAmountUsd: repayAmount,
-        txHashes: txHashes.length > 0 ? txHashes : undefined,
-      });
-      await this.notify(
-        `\u{274C} <b>Watchdog: Execution failed</b>\n\n` +
-          `Loan: ${loan.id}\n` +
-          `Error: ${message}\n` +
-          (txHashes.length > 0
-            ? `Partial txs: ${txHashes.map((h) => `<code>${h}</code>`).join('\n')}`
-            : ''),
-      );
-      return { status: 'failed', hadPartialExecution: txHashes.length > 0 };
-    }
-  }
-
-  private async getGasPrice(): Promise<number> {
-    const result = await this.rpcCall<string>('eth_gasPrice', []);
-    return Number(BigInt(result));
-  }
-
-  private async getEthBalance(address: string): Promise<number> {
-    const result = await this.rpcCall<string>('eth_getBalance', [address, 'latest']);
-    return Number(BigInt(result)) / 1e18;
-  }
-
-  private async getAllowance(token: string, owner: string, spender: string): Promise<bigint> {
-    const data = SELECTORS.allowance + padAddress(owner) + padAddress(spender);
-    const result = await this.rpcCall<string>('eth_call', [{ to: token, data }, 'latest']);
-    return BigInt(result);
-  }
-  private walletPromise?: Promise<import('ethers').Wallet>;
-
-  private async sendTransaction(from: string, to: string, data: string): Promise<string> {
-    if (!this.privateKey) {
-      throw new Error('No private key configured');
     }
 
-    if (!this.walletPromise) {
-      this.walletPromise = (async () => {
-        const { Wallet, JsonRpcProvider } = await import('ethers');
-        const provider = new JsonRpcProvider(this.rpcUrl);
-        return new Wallet(this.privateKey!, provider);
-      })();
-    }
+    return high;
+  }
 
-    const wallet = await this.walletPromise;
-    const signerAddress = wallet.address;
-    if (signerAddress.toLowerCase() !== from.toLowerCase()) {
+  private async previewResultingHF(
+    provider: JsonRpcProvider,
+    rescueContract: string,
+    user: string,
+    amountRaw: bigint,
+  ): Promise<bigint> {
+    const data = RESCUE_INTERFACE.encodeFunctionData('previewResultingHF', [
+      user,
+      WBTC_CONTRACT,
+      amountRaw,
+    ]);
+    const result = await provider.call({ to: rescueContract, data });
+    const [hf] = RESCUE_INTERFACE.decodeFunctionResult('previewResultingHF', result);
+    return BigInt(hf);
+  }
+
+  private async submitRescueTransaction(
+    from: string,
+    rescueContract: string,
+    amountRaw: bigint,
+    minResultingHF: bigint,
+    deadline: number,
+  ): Promise<string> {
+    const wallet = this.getWallet();
+    if (wallet.address.toLowerCase() !== from.toLowerCase()) {
       throw new Error(
-        `Signer address mismatch: private key controls ${signerAddress} but expected ${from}. ` +
+        `Signer address mismatch: private key controls ${wallet.address} but expected ${from}. ` +
           `The configured private key must correspond to the monitored wallet address.`,
       );
     }
 
-    const tx = await wallet.sendTransaction({ to, data });
+    const data = RESCUE_INTERFACE.encodeFunctionData('rescue', [
+      {
+        user: from,
+        asset: WBTC_CONTRACT,
+        amount: amountRaw,
+        minResultingHF,
+        deadline,
+      },
+    ]);
+
+    const tx = await wallet.sendTransaction({ to: rescueContract, data });
     const receipt = await tx.wait();
     if (!receipt || receipt.status === 0) {
       throw new Error(`Transaction reverted: ${tx.hash}`);
     }
+
     return tx.hash;
   }
 
-  private async rpcCall<T>(method: string, params: unknown[]): Promise<T> {
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method,
-        params,
-      }),
-    });
+  private async getTokenBalance(
+    provider: JsonRpcProvider,
+    token: string,
+    owner: string,
+  ): Promise<bigint> {
+    const data = ERC20_INTERFACE.encodeFunctionData('balanceOf', [owner]);
+    const result = await provider.call({ to: token, data });
+    const [balance] = ERC20_INTERFACE.decodeFunctionResult('balanceOf', result);
+    return BigInt(balance);
+  }
 
-    if (!response.ok) {
-      throw new Error(`RPC request failed: ${response.status}`);
+  private async getTokenAllowance(
+    provider: JsonRpcProvider,
+    token: string,
+    owner: string,
+    spender: string,
+  ): Promise<bigint> {
+    const data = ERC20_INTERFACE.encodeFunctionData('allowance', [owner, spender]);
+    const result = await provider.call({ to: token, data });
+    const [allowance] = ERC20_INTERFACE.decodeFunctionResult('allowance', result);
+    return BigInt(allowance);
+  }
+
+  private async getGasPriceGwei(provider: JsonRpcProvider): Promise<number> {
+    const feeData = await provider.getFeeData();
+    const gasPrice = feeData.gasPrice ?? 0n;
+    return Number(gasPrice) / 1e9;
+  }
+
+  private async getEthBalance(provider: JsonRpcProvider, address: string): Promise<number> {
+    const balance = await provider.getBalance(address);
+    return Number(balance) / 1e18;
+  }
+
+  private getProvider(): JsonRpcProvider {
+    if (!this.provider) {
+      this.provider = new JsonRpcProvider(this.rpcUrl);
     }
+    return this.provider;
+  }
 
-    const data = (await response.json()) as {
-      result?: T;
-      error?: { message: string };
-    };
-
-    if (data.error) {
-      throw new Error(`RPC error: ${data.error.message}`);
+  private getWallet(): Wallet {
+    if (!this.privateKey) {
+      throw new Error('No private key configured');
     }
+    if (!this.wallet) {
+      this.wallet = new Wallet(this.privateKey, this.getProvider());
+    }
+    return this.wallet;
+  }
 
-    return data.result as T;
+  private toNumberAmount(value: bigint): number {
+    return Number(formatUnits(value, WBTC_DECIMALS));
+  }
+
+  private toWad(value: number): bigint {
+    return parseUnits(value.toFixed(18), 18);
+  }
+
+  private wadToNumber(value: bigint): number {
+    return Number(formatUnits(value, 18));
   }
 
   private async notify(message: string): Promise<void> {
@@ -457,37 +475,11 @@ export class Watchdog {
       this.log.length = this.maxLogEntries;
     }
     console.log(
-      `[Watchdog] ${entry.action}: ${entry.reason} (loan=${entry.loanId}, adjHF=${entry.adjustedHF.toFixed(4)})`,
+      `[Watchdog] ${entry.action}: ${entry.reason} (loan=${entry.loanId}, HF=${entry.healthFactor.toFixed(4)})`,
     );
   }
 }
 
-function padAddress(address: string): string {
-  return address.toLowerCase().replace('0x', '').padStart(64, '0');
-}
-
-function amountToHex(amount: number, decimals: number): string {
-  // Use string-based conversion to avoid floating point precision issues
-  const fixed = amount.toFixed(decimals);
-  const [integerPart, fractionalPartRaw = ''] = fixed.split('.');
-  const fractionalPart = fractionalPartRaw.padEnd(decimals, '0').slice(0, decimals);
-  const rawStr = integerPart + fractionalPart;
-  const raw = BigInt(rawStr);
-  return '0x' + raw.toString(16).padStart(64, '0');
-}
-
-function encodeFunctionCall(selector: string, params: string[]): string {
-  const encodedParams = params.map((p) => {
-    if (p.startsWith('0x') && p.length === 66) {
-      // Already a 32-byte padded value
-      return p.slice(2);
-    }
-    if (p.startsWith('0x') && p.length === 42) {
-      // Address — left-pad to 32 bytes
-      return padAddress(p);
-    }
-    // Assume it's already a padded hex string
-    return p.replace('0x', '').padStart(64, '0');
-  });
-  return selector + encodedParams.join('');
+function minBigInt(...values: bigint[]): bigint {
+  return values.reduce((min, value) => (value < min ? value : min));
 }

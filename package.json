@@ -17,7 +17,9 @@
     "dev:server": "yarn workspace @aave-monitor/server dev",
     "dev:all": "yarn dev & yarn dev:server",
     "build:server": "yarn workspace @aave-monitor/server build",
-    "test": "yarn workspace @aave-monitor/server test"
+    "test": "yarn workspace @aave-monitor/server test",
+    "test:contracts": "forge test --root packages/rescue-contract",
+    "deploy:rescue:dry-run": "forge script script/DeployAaveAtomicRescueV1.s.sol --root packages/rescue-contract"
   },
   "dependencies": {
     "@aave-monitor/core": "*",

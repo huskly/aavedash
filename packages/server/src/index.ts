@@ -51,8 +51,11 @@ const partialAlertConfigSchema = z
         dryRun: z.boolean(),
         triggerHF: z.number().positive(),
         targetHF: z.number().positive(),
+        minResultingHF: z.number().positive(),
         cooldownMs: z.number().positive(),
-        maxRepayUsd: z.number().positive(),
+        maxTopUpWbtc: z.number().positive(),
+        deadlineSeconds: z.number().int().positive(),
+        rescueContract: z.string(),
         maxGasGwei: z.number().positive(),
       })
       .partial(),

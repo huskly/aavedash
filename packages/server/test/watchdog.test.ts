@@ -1,20 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeAdjustedHF, type LoanPosition } from '@aave-monitor/core';
+import type { LoanPosition } from '@aave-monitor/core';
 import { Watchdog } from '../src/watchdog.js';
 import type { WatchdogConfig } from '../src/storage.js';
 import type { TelegramClient } from '../src/telegram.js';
 
 const WALLET = '0x1111111111111111111111111111111111111111';
+const RESCUE_CONTRACT = '0x2222222222222222222222222222222222222222';
 
 function createConfig(overrides: Partial<WatchdogConfig> = {}): WatchdogConfig {
   return {
     enabled: true,
     dryRun: false,
-    triggerHF: 1.25,
-    targetHF: 1.5,
+    triggerHF: 1.65,
+    targetHF: 1.9,
+    minResultingHF: 1.85,
     cooldownMs: 30 * 60 * 1000,
-    maxRepayUsd: 10_000,
+    maxTopUpWbtc: 0.5,
+    deadlineSeconds: 300,
+    rescueContract: RESCUE_CONTRACT,
     maxGasGwei: 50,
     ...overrides,
   };
@@ -27,9 +31,9 @@ function createLoan(): LoanPosition {
     borrowed: {
       symbol: 'USDC',
       address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-      amount: 1_000,
+      amount: 1600,
       usdPrice: 1,
-      usdValue: 1_000,
+      usdValue: 1600,
       collateralEnabled: false,
       maxLTV: 0,
       liqThreshold: 0,
@@ -38,20 +42,20 @@ function createLoan(): LoanPosition {
     },
     supplied: [
       {
-        symbol: 'WETH',
-        address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
-        amount: 1,
-        usdPrice: 1_000,
-        usdValue: 1_000,
+        symbol: 'WBTC',
+        address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+        amount: 0.08,
+        usdPrice: 40_000,
+        usdValue: 3_200,
         collateralEnabled: true,
-        maxLTV: 0.8,
-        liqThreshold: 0.8,
-        supplyRate: 0.01,
+        maxLTV: 0.7,
+        liqThreshold: 0.75,
+        supplyRate: 0,
         borrowRate: 0,
       },
     ],
-    totalSuppliedUsd: 1_000,
-    totalBorrowedUsd: 1_000,
+    totalSuppliedUsd: 3_200,
+    totalBorrowedUsd: 1_600,
   };
 }
 
@@ -66,6 +70,7 @@ function createWatchdog(
       return true;
     },
   } as unknown as TelegramClient;
+
   return {
     watchdog: new Watchdog(
       telegram,
@@ -78,340 +83,147 @@ function createWatchdog(
   };
 }
 
-test('does not mutate wallet balance or set cooldown when live execution is skipped', async () => {
-  const { watchdog } = createWatchdog(createConfig());
-  const balances = new Map<string, number>([['USDC', 1_000]]);
+test('dry-run logs planned atomic rescue and applies cooldown', async () => {
+  const { watchdog, messages } = createWatchdog(createConfig({ dryRun: true }));
+  const targetHFWad = 1_900_000_000_000_000_000n;
 
-  (watchdog as unknown as { executeRepay: () => Promise<{ status: 'skipped' }> }).executeRepay =
-    async () => ({ status: 'skipped' });
-
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  assert.equal(balances.get('USDC'), 1_000);
-  const cooldowns = (watchdog as unknown as { cooldowns: Map<string, number> }).cooldowns;
-  assert.equal(cooldowns.size, 0);
-});
-
-test('mutates wallet balance and sets cooldown when live execution succeeds', async () => {
-  const { watchdog } = createWatchdog(createConfig());
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-
+  (watchdog as unknown as { getTokenBalance: () => Promise<bigint> }).getTokenBalance = async () =>
+    100_000_000n;
   (
     watchdog as unknown as {
-      executeRepay: () => Promise<{ status: 'executed'; walletSpent: number }>;
+      getTokenAllowance: () => Promise<bigint>;
     }
-  ).executeRepay = async () => ({ status: 'executed', walletSpent: 250 });
-
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  assert.equal(balances.get('USDC'), 750);
-  const cooldowns = (watchdog as unknown as { cooldowns: Map<string, number> }).cooldowns;
-  assert.equal(cooldowns.has(`${WALLET}-loan-1`), true);
-});
-
-test('sets cooldown but preserves wallet balance when execution fails after partial on-chain progress', async () => {
-  const { watchdog } = createWatchdog(createConfig());
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-
+  ).getTokenAllowance = async () => 100_000_000n;
   (
     watchdog as unknown as {
-      executeRepay: () => Promise<{ status: 'failed'; hadPartialExecution: boolean }>;
+      findRequiredAmountRaw: () => Promise<bigint | null>;
     }
-  ).executeRepay = async () => ({ status: 'failed', hadPartialExecution: true });
-
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  assert.equal(balances.get('USDC'), 1_000);
-  const cooldowns = (watchdog as unknown as { cooldowns: Map<string, number> }).cooldowns;
-  assert.equal(cooldowns.has(`${WALLET}-loan-1`), true);
-});
-
-test('does not set cooldown when execution fails without partial on-chain progress', async () => {
-  const { watchdog } = createWatchdog(createConfig());
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-
+  ).findRequiredAmountRaw = async () => 2_500_000n;
   (
     watchdog as unknown as {
-      executeRepay: () => Promise<{ status: 'failed'; hadPartialExecution: boolean }>;
+      previewResultingHF: () => Promise<bigint>;
     }
-  ).executeRepay = async () => ({ status: 'failed', hadPartialExecution: false });
+  ).previewResultingHF = async (
+    _provider: unknown,
+    _contract: string,
+    _user: string,
+    amount: bigint,
+  ) => (amount > 0n ? targetHFWad : 1_500_000_000_000_000_000n);
 
-  await watchdog.evaluate(createLoan(), WALLET, balances);
+  await watchdog.evaluate(createLoan(), WALLET);
 
-  assert.equal(balances.get('USDC'), 1_000);
-  const cooldowns = (watchdog as unknown as { cooldowns: Map<string, number> }).cooldowns;
-  assert.equal(cooldowns.size, 0);
-});
-
-test('dry-run sends notification and applies cooldown without executing on-chain calls', async () => {
-  const { watchdog, messages } = createWatchdog(createConfig({ dryRun: true, maxRepayUsd: 100 }));
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  let executeCalled = 0;
-  (
-    watchdog as unknown as {
-      executeRepay: () => Promise<{ status: 'executed'; walletSpent: number }>;
-    }
-  ).executeRepay = async () => {
-    executeCalled++;
-    return { status: 'executed', walletSpent: 0 };
-  };
-
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  assert.equal(executeCalled, 0);
   assert.equal(messages.length, 1);
   assert.match(messages[0]!, /Watchdog DRY RUN/);
-  assert.match(messages[0]!, /Would repay: <b>100\.00 USDC<\/b>/);
-  const cooldowns = (watchdog as unknown as { cooldowns: Map<string, number> }).cooldowns;
-  assert.equal(cooldowns.has(`${WALLET}-loan-1`), true);
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'dry-run');
+  assert.equal(log[0]?.topUpWbtc, 0.025);
 });
 
-test('cooldown prevents re-execution during consecutive evaluations', async () => {
-  const { watchdog } = createWatchdog(createConfig());
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  let executeCalled = 0;
+test('live mode skips when private key is missing', async () => {
+  const { watchdog } = createWatchdog(createConfig({ dryRun: false }), { privateKey: null });
+
+  (watchdog as unknown as { getTokenBalance: () => Promise<bigint> }).getTokenBalance = async () =>
+    100_000_000n;
   (
     watchdog as unknown as {
-      executeRepay: () => Promise<{ status: 'executed'; walletSpent: number }>;
+      getTokenAllowance: () => Promise<bigint>;
     }
-  ).executeRepay = async () => {
-    executeCalled++;
-    return { status: 'executed', walletSpent: 10 };
-  };
+  ).getTokenAllowance = async () => 100_000_000n;
+  (
+    watchdog as unknown as {
+      findRequiredAmountRaw: () => Promise<bigint | null>;
+    }
+  ).findRequiredAmountRaw = async () => 1_000_000n;
+  (
+    watchdog as unknown as {
+      previewResultingHF: () => Promise<bigint>;
+    }
+  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
 
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-  await watchdog.evaluate(createLoan(), WALLET, balances);
+  await watchdog.evaluate(createLoan(), WALLET);
 
-  assert.equal(executeCalled, 1);
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /No private key configured/);
 });
 
-test('cooldown skip is added to action log', async () => {
-  const { watchdog } = createWatchdog(createConfig({ dryRun: true }));
-  const balances = new Map<string, number>([['USDC', 1_000]]);
+test('live mode executes rescue and records tx hash', async () => {
+  const { watchdog, messages } = createWatchdog(createConfig({ dryRun: false }));
 
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-  await watchdog.evaluate(createLoan(), WALLET, balances);
+  (watchdog as unknown as { getTokenBalance: () => Promise<bigint> }).getTokenBalance = async () =>
+    100_000_000n;
+  (
+    watchdog as unknown as {
+      getTokenAllowance: () => Promise<bigint>;
+    }
+  ).getTokenAllowance = async () => 100_000_000n;
+  (
+    watchdog as unknown as {
+      findRequiredAmountRaw: () => Promise<bigint | null>;
+    }
+  ).findRequiredAmountRaw = async () => 1_000_000n;
+  (
+    watchdog as unknown as {
+      previewResultingHF: () => Promise<bigint>;
+    }
+  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+  (
+    watchdog as unknown as {
+      getGasPriceGwei: () => Promise<number>;
+    }
+  ).getGasPriceGwei = async () => 10;
+  (watchdog as unknown as { getEthBalance: () => Promise<number> }).getEthBalance = async () => 1;
+  (
+    watchdog as unknown as {
+      submitRescueTransaction: () => Promise<string>;
+    }
+  ).submitRescueTransaction = async () => '0xabc123';
+
+  await watchdog.evaluate(createLoan(), WALLET);
+
+  const log = watchdog.getLog();
+  assert.equal(log[0]?.action, 'rescue');
+  assert.equal(log[0]?.txHash, '0xabc123');
+  assert.equal(messages.length, 1);
+  assert.match(messages[0]!, /Atomic rescue executed/);
+});
+
+test('cooldown prevents immediate re-execution', async () => {
+  const { watchdog } = createWatchdog(createConfig({ dryRun: true }));
+
+  (watchdog as unknown as { getTokenBalance: () => Promise<bigint> }).getTokenBalance = async () =>
+    100_000_000n;
+  (
+    watchdog as unknown as {
+      getTokenAllowance: () => Promise<bigint>;
+    }
+  ).getTokenAllowance = async () => 100_000_000n;
+  (
+    watchdog as unknown as {
+      findRequiredAmountRaw: () => Promise<bigint | null>;
+    }
+  ).findRequiredAmountRaw = async () => 1_000_000n;
+  (
+    watchdog as unknown as {
+      previewResultingHF: () => Promise<bigint>;
+    }
+  ).previewResultingHF = async () => 1_900_000_000_000_000_000n;
+
+  await watchdog.evaluate(createLoan(), WALLET);
+  await watchdog.evaluate(createLoan(), WALLET);
 
   const log = watchdog.getLog();
   assert.equal(log.length, 2);
-  assert.equal(log[0]!.action, 'skipped');
-  assert.match(log[0]!.reason, /Cooldown active/);
-  assert.equal(log[1]!.action, 'dry-run');
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /Cooldown active/);
 });
 
-test('repayment amount is capped by maxRepayUsd and can include withdraw funding', async () => {
-  const { watchdog } = createWatchdog(createConfig({ maxRepayUsd: 100 }));
-  const balances = new Map<string, number>([['USDC', 50]]);
-  const loan = createLoan();
-  loan.supplied.push({
-    symbol: 'USDC',
-    address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    amount: 200,
-    usdPrice: 1,
-    usdValue: 200,
-    collateralEnabled: true,
-    maxLTV: 0,
-    liqThreshold: 0,
-    supplyRate: 0,
-    borrowRate: 0,
-  });
+test('invalid rescue contract produces skipped log entry', async () => {
+  const { watchdog } = createWatchdog(createConfig({ rescueContract: '' }));
 
-  let capturedRepay = 0;
-  let capturedWithdraw = 0;
-  (
-    watchdog as unknown as {
-      executeRepay: (
-        loan: LoanPosition,
-        walletAddress: string,
-        adjusted: unknown,
-        repayAmount: number,
-        withdrawAmount: number,
-      ) => Promise<{ status: 'executed'; walletSpent: number }>;
-    }
-  ).executeRepay = async (_loan, _walletAddress, _adjusted, repayAmount, withdrawAmount) => {
-    capturedRepay = repayAmount;
-    capturedWithdraw = withdrawAmount;
-    return { status: 'executed', walletSpent: repayAmount - withdrawAmount };
-  };
-
-  await watchdog.evaluate(loan, WALLET, balances);
-
-  assert.equal(capturedRepay, 100);
-  assert.equal(capturedWithdraw, 50);
-});
-
-test('non-stablecoin debt is skipped', async () => {
-  const { watchdog } = createWatchdog(createConfig());
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  const loan = createLoan();
-  loan.borrowed.symbol = 'WETH';
-
-  let executeCalled = 0;
-  (
-    watchdog as unknown as {
-      executeRepay: () => Promise<{ status: 'executed'; walletSpent: number }>;
-    }
-  ).executeRepay = async () => {
-    executeCalled++;
-    return { status: 'executed', walletSpent: 0 };
-  };
-
-  await watchdog.evaluate(loan, WALLET, balances);
-  assert.equal(executeCalled, 0);
-});
-
-test('live mode without private key is logged and skipped', async () => {
-  const { watchdog } = createWatchdog(createConfig(), { privateKey: null });
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-
-  await watchdog.evaluate(createLoan(), WALLET, balances);
+  await watchdog.evaluate(createLoan(), WALLET);
 
   const log = watchdog.getLog();
-  assert.equal(log.length, 1);
-  assert.match(log[0]!.reason, /No private key configured/);
-});
-
-test('executeRepay skips when gas price exceeds configured max and notifies', async () => {
-  const { watchdog, messages } = createWatchdog(createConfig({ maxGasGwei: 1 }));
-  (
-    watchdog as unknown as {
-      getGasPrice: () => Promise<number>;
-      getEthBalance: () => Promise<number>;
-      sendTransaction: () => Promise<string>;
-    }
-  ).getGasPrice = async () => 2e9;
-  (watchdog as unknown as { getEthBalance: () => Promise<number> }).getEthBalance = async () => 1;
-  (watchdog as unknown as { sendTransaction: () => Promise<string> }).sendTransaction =
-    async () => {
-      throw new Error('should not send tx when gas is high');
-    };
-
-  const result = await (
-    watchdog as unknown as {
-      executeRepay: (
-        loan: LoanPosition,
-        walletAddress: string,
-        adjusted: ReturnType<typeof computeAdjustedHF>,
-        repayAmount: number,
-        withdrawAmount: number,
-        config: WatchdogConfig,
-      ) => Promise<{ status: string }>;
-    }
-  ).executeRepay(
-    createLoan(),
-    WALLET,
-    computeAdjustedHF(createLoan()),
-    100,
-    0,
-    createConfig({ maxGasGwei: 1 }),
-  );
-
-  assert.equal(result.status, 'skipped');
-  assert.equal(messages.length, 1);
-  assert.match(messages[0]!, /Gas too high/);
-});
-
-test('getStatusSummary reflects config and private key state', () => {
-  const config = createConfig({ triggerHF: 1.3, targetHF: 1.6 });
-  const { watchdog: withKey } = createWatchdog(config);
-  const summary1 = withKey.getStatusSummary();
-  assert.equal(summary1.enabled, true);
-  assert.equal(summary1.dryRun, false);
-  assert.equal(summary1.hasPrivateKey, true);
-  assert.equal(summary1.triggerHF, 1.3);
-  assert.equal(summary1.targetHF, 1.6);
-  assert.equal(summary1.recentActions, 0);
-
-  const { watchdog: noKey } = createWatchdog(createConfig({ enabled: false, dryRun: true }), {
-    privateKey: null,
-  });
-  const summary2 = noKey.getStatusSummary();
-  assert.equal(summary2.enabled, false);
-  assert.equal(summary2.dryRun, true);
-  assert.equal(summary2.hasPrivateKey, false);
-});
-
-test('getLog returns log entries in reverse chronological order', async () => {
-  const { watchdog } = createWatchdog(createConfig({ dryRun: true, maxRepayUsd: 50 }));
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  const log = watchdog.getLog();
-  assert.equal(log.length, 1);
-  assert.equal(log[0]!.action, 'dry-run');
-  assert.equal(log[0]!.loanId, 'loan-1');
-  assert.equal(log[0]!.wallet, WALLET);
-
-  // Verify getStatusSummary reflects the logged action
-  const summary = watchdog.getStatusSummary();
-  assert.equal(summary.recentActions, 1);
-});
-
-test('getLog returns a copy that does not mutate internal state', async () => {
-  const { watchdog } = createWatchdog(createConfig({ dryRun: true, maxRepayUsd: 50 }));
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  const log = watchdog.getLog();
-  log.length = 0;
-  assert.equal(watchdog.getLog().length, 1);
-});
-
-test('disabled watchdog skips evaluation entirely', async () => {
-  const { watchdog, messages } = createWatchdog(createConfig({ enabled: false }));
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  await watchdog.evaluate(createLoan(), WALLET, balances);
-
-  assert.equal(watchdog.getLog().length, 0);
-  assert.equal(messages.length, 0);
-});
-
-test('watchdog skips when adjusted HF is above trigger', async () => {
-  const loan = createLoan();
-  // Make a healthy loan: low debt relative to collateral
-  loan.borrowed.amount = 100;
-  loan.borrowed.usdValue = 100;
-  loan.totalBorrowedUsd = 100;
-
-  const { watchdog, messages } = createWatchdog(createConfig({ dryRun: true }));
-  const balances = new Map<string, number>([['USDC', 1_000]]);
-  await watchdog.evaluate(loan, WALLET, balances);
-
-  assert.equal(watchdog.getLog().length, 0);
-  assert.equal(messages.length, 0);
-});
-
-test('executeRepay skips when ETH balance is too low and notifies', async () => {
-  const config = createConfig();
-  const { watchdog, messages } = createWatchdog(config);
-  (
-    watchdog as unknown as {
-      getGasPrice: () => Promise<number>;
-      getEthBalance: () => Promise<number>;
-      sendTransaction: () => Promise<string>;
-    }
-  ).getGasPrice = async () => 1e9;
-  (watchdog as unknown as { getEthBalance: () => Promise<number> }).getEthBalance = async () =>
-    0.001;
-  (watchdog as unknown as { sendTransaction: () => Promise<string> }).sendTransaction =
-    async () => {
-      throw new Error('should not send tx when ETH is insufficient');
-    };
-
-  const result = await (
-    watchdog as unknown as {
-      executeRepay: (
-        loan: LoanPosition,
-        walletAddress: string,
-        adjusted: ReturnType<typeof computeAdjustedHF>,
-        repayAmount: number,
-        withdrawAmount: number,
-        config: WatchdogConfig,
-      ) => Promise<{ status: string }>;
-    }
-  ).executeRepay(createLoan(), WALLET, computeAdjustedHF(createLoan()), 100, 0, config);
-
-  assert.equal(result.status, 'skipped');
-  assert.equal(messages.length, 1);
-  assert.match(messages[0]!, /Insufficient ETH for gas/);
+  assert.equal(log[0]?.action, 'skipped');
+  assert.match(log[0]?.reason ?? '', /Invalid or missing rescueContract/);
 });

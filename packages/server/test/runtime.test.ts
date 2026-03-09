@@ -37,10 +37,13 @@ function createConfig(walletEnabled: boolean): AlertConfig {
     watchdog: {
       enabled: false,
       dryRun: true,
-      triggerHF: 1.25,
-      targetHF: 1.5,
+      triggerHF: 1.65,
+      targetHF: 1.9,
+      minResultingHF: 1.85,
       cooldownMs: 30 * 60 * 1000,
-      maxRepayUsd: 10_000,
+      maxTopUpWbtc: 0.5,
+      deadlineSeconds: 300,
+      rescueContract: '0x2222222222222222222222222222222222222222',
       maxGasGwei: 50,
     },
   };
@@ -50,10 +53,13 @@ function createWatchdogConfig(): WatchdogConfig {
   return {
     enabled: true,
     dryRun: true,
-    triggerHF: 1.25,
-    targetHF: 1.5,
+    triggerHF: 1.65,
+    targetHF: 1.9,
+    minResultingHF: 1.85,
     cooldownMs: 30 * 60 * 1000,
-    maxRepayUsd: 10_000,
+    maxTopUpWbtc: 0.5,
+    deadlineSeconds: 300,
+    rescueContract: '0x2222222222222222222222222222222222222222',
     maxGasGwei: 50,
   };
 }
@@ -70,11 +76,16 @@ test('validateWatchdogThresholds enforces targetHF above triggerHF', () => {
     validateWatchdogThresholds(current, { targetHF: 1.2 }),
     'watchdog.targetHF must be greater than watchdog.triggerHF',
   );
+  assert.equal(validateWatchdogThresholds(current, { triggerHF: 1.6 }), null);
+  assert.equal(validateWatchdogThresholds(current, { triggerHF: 1.6, targetHF: 2.0 }), null);
   assert.equal(
-    validateWatchdogThresholds(current, { triggerHF: 1.6 }),
-    'watchdog.targetHF must be greater than watchdog.triggerHF',
+    validateWatchdogThresholds(current, { minResultingHF: 1.6 }),
+    'watchdog.minResultingHF must be greater than watchdog.triggerHF',
   );
-  assert.equal(validateWatchdogThresholds(current, { triggerHF: 1.2, targetHF: 1.6 }), null);
+  assert.equal(
+    validateWatchdogThresholds(current, { minResultingHF: 2.1 }),
+    'watchdog.minResultingHF must be less than or equal to watchdog.targetHF',
+  );
   assert.equal(validateWatchdogThresholds(current, undefined), null);
 });
 
@@ -83,8 +94,10 @@ test('formatWatchdogStatusMessage escapes html-sensitive log content', () => {
     enabled: true,
     dryRun: true,
     hasPrivateKey: false,
-    triggerHF: 1.25,
-    targetHF: 1.5,
+    triggerHF: 1.65,
+    targetHF: 1.9,
+    minResultingHF: 1.85,
+    rescueContract: '0x2222222222222222222222222222222222222222',
     recentActions: 1,
   };
   const log: WatchdogLogEntry[] = [
@@ -94,8 +107,9 @@ test('formatWatchdogStatusMessage escapes html-sensitive log content', () => {
       wallet: '0x1111111111111111111111111111111111111111',
       action: 'skipped',
       reason: 'Execution failed: bad <tag> & "quoted"',
-      adjustedHF: 0.9,
-      repayAmountUsd: 0,
+      healthFactor: 1.2,
+      topUpWbtc: 0,
+      projectedHF: 1.2,
     },
   ];
 

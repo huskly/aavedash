@@ -47,8 +47,11 @@ test('load() merges missing watchdog fields from defaults when persisted config 
 
     assert.equal(watchdog.enabled, true);
     assert.equal(watchdog.dryRun, true);
+    assert.equal(watchdog.minResultingHF, 1.85);
     assert.equal(watchdog.cooldownMs, 30 * 60 * 1000);
-    assert.equal(watchdog.maxRepayUsd, 10_000);
+    assert.equal(watchdog.maxTopUpWbtc, 0.5);
+    assert.equal(watchdog.deadlineSeconds, 300);
+    assert.equal(watchdog.rescueContract, '');
     assert.equal(watchdog.maxGasGwei, 50);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -65,10 +68,13 @@ test('update() merges partial watchdog payload with existing watchdog config', (
       watchdog: {
         enabled: true,
         dryRun: false,
-        triggerHF: 1.2,
-        targetHF: 1.6,
+        triggerHF: 1.65,
+        targetHF: 1.95,
+        minResultingHF: 1.85,
         cooldownMs: 1000,
-        maxRepayUsd: 5000,
+        maxTopUpWbtc: 0.2,
+        deadlineSeconds: 120,
+        rescueContract: '0x2222222222222222222222222222222222222222',
         maxGasGwei: 10,
       },
     });
@@ -78,10 +84,13 @@ test('update() merges partial watchdog payload with existing watchdog config', (
     const watchdog = storage.get().watchdog;
     assert.equal(watchdog.enabled, true);
     assert.equal(watchdog.dryRun, false);
-    assert.equal(watchdog.triggerHF, 1.2);
+    assert.equal(watchdog.triggerHF, 1.65);
     assert.equal(watchdog.targetHF, 2.0);
+    assert.equal(watchdog.minResultingHF, 1.85);
     assert.equal(watchdog.cooldownMs, 1000);
-    assert.equal(watchdog.maxRepayUsd, 5000);
+    assert.equal(watchdog.maxTopUpWbtc, 0.2);
+    assert.equal(watchdog.deadlineSeconds, 120);
+    assert.equal(watchdog.rescueContract, '0x2222222222222222222222222222222222222222');
     assert.equal(watchdog.maxGasGwei, 10);
   } finally {
     rmSync(dir, { recursive: true, force: true });

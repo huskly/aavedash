@@ -31,7 +31,6 @@ export {
   clamp,
   computeAdjustedHF,
   computeLoanMetrics,
-  computeRepaymentAmount,
   fromBps,
   fromRay,
   healthLabel,

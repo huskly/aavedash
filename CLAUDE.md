@@ -27,7 +27,9 @@ Configured via `.env` in project root (prefixed with `VITE_` for Vite exposure):
 - `VITE_R_DEPLOY` — optional deploy APY rate (decimal, default 0.1125)
 - `VITE_BASE_PATH` — used in vite.config.ts for GitHub Pages deployment
 - `RPC_URL` — Ethereum JSON-RPC endpoint used by backend for on-chain reads (default `https://eth.llamarpc.com`)
-- `WATCHDOG_PRIVATE_KEY` — optional private key for watchdog live mode (auto-repay); omit for dry-run only
+- `WATCHDOG_PRIVATE_KEY` — optional private key for watchdog live mode (atomic rescue); omit for dry-run only
+- `WATCHDOG_MIN_RESULTING_HF` — optional override for minimum required post-rescue HF
+- `WATCHDOG_MAX_TOP_UP_WBTC` — optional override for max WBTC top-up per rescue action
 - `TELEGRAM_BOT_TOKEN` — backend Telegram bot token (loaded from root `.env`)
 - `PORT` — optional backend port (default `3001`)
 
@@ -42,6 +44,7 @@ Backend server notes:
 - Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
 - Fully paid-off / zero-value positions are filtered out of both dashboard data and Telegram status output.
 - Watchdog user-facing docs live in `docs/watchdog-user-manual.md`.
+- Watchdog uses an atomic on-chain rescue path: it computes required WBTC collateral top-up off-chain and submits a single `rescue(...)` transaction to the configured rescue contract.
 - Watchdog is fully wired: monitor integration, `GET /api/watchdog/status` endpoint, `/watchdog` Telegram command, config via `GET/PUT /api/config`, and dashboard settings controls for watchdog fields.
 - `zones[].maxHF` accepts JSON `null` on `PUT /api/config` and is normalized to `Infinity` (important because JSON serialization turns `Infinity` into `null`).
 - Monitor runtime is driven by enabled wallets (not Telegram enablement), so watchdog polling can run without Telegram configured.

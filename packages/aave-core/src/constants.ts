@@ -87,9 +87,12 @@ export const DEFAULT_POLLING_CONFIG: PollingConfig = {
 export const DEFAULT_WATCHDOG_CONFIG: WatchdogConfig = {
   enabled: false,
   dryRun: true,
-  triggerHF: 1.25,
-  targetHF: 1.5,
+  triggerHF: 1.65,
+  targetHF: 1.9,
+  minResultingHF: 1.85,
   cooldownMs: 30 * 60 * 1000,
-  maxRepayUsd: 10_000,
+  maxTopUpWbtc: 0.5,
+  deadlineSeconds: 300,
+  rescueContract: '',
   maxGasGwei: 50,
 };

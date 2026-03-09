@@ -58,12 +58,32 @@ function validateConfig(config: AlertConfig): string | null {
     return 'Watchdog target HF must be greater than trigger HF.';
   }
 
+  if (!isPositiveFinite(watchdog.minResultingHF)) {
+    return 'Watchdog minimum resulting HF must be a positive number.';
+  }
+
+  if (watchdog.minResultingHF <= watchdog.triggerHF) {
+    return 'Watchdog minimum resulting HF must be greater than trigger HF.';
+  }
+
+  if (watchdog.minResultingHF > watchdog.targetHF) {
+    return 'Watchdog minimum resulting HF must be less than or equal to target HF.';
+  }
+
   if (!isPositiveFinite(watchdog.cooldownMs)) {
     return 'Watchdog cooldown must be a positive number.';
   }
 
-  if (!isPositiveFinite(watchdog.maxRepayUsd)) {
-    return 'Watchdog max repay must be a positive number.';
+  if (!isPositiveFinite(watchdog.maxTopUpWbtc)) {
+    return 'Watchdog max WBTC top-up must be a positive number.';
+  }
+
+  if (!isPositiveFinite(watchdog.deadlineSeconds)) {
+    return 'Watchdog deadline seconds must be a positive number.';
+  }
+
+  if (watchdog.enabled && !/^0x[a-fA-F0-9]{40}$/.test(watchdog.rescueContract)) {
+    return 'Watchdog rescue contract must be a valid Ethereum address.';
   }
 
   if (!isPositiveFinite(watchdog.maxGasGwei)) {
@@ -525,6 +545,37 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                     </label>
 
                     <label className="grid gap-1 text-[0.84rem]">
+                      <span className="text-[#afc0d5]">Minimum resulting HF</span>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={config.watchdog.minResultingHF}
+                        onChange={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              minResultingHF: Number(e.target.value),
+                            },
+                          };
+                          setConfig(updated);
+                        }}
+                        onBlur={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              minResultingHF: Number(e.target.value),
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        className="w-[120px]"
+                      />
+                    </label>
+
+                    <label className="grid gap-1 text-[0.84rem]">
                       <span className="text-[#afc0d5]">Action cooldown (minutes)</span>
                       <Input
                         type="number"
@@ -556,18 +607,18 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                     </label>
 
                     <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Max repay per action (USD)</span>
+                      <span className="text-[#afc0d5]">Max top-up per action (WBTC)</span>
                       <Input
                         type="number"
-                        min="1"
-                        step="1"
-                        value={Math.round(config.watchdog.maxRepayUsd)}
+                        min="0.0001"
+                        step="0.0001"
+                        value={config.watchdog.maxTopUpWbtc}
                         onChange={(e) => {
                           const updated = {
                             ...config,
                             watchdog: {
                               ...config.watchdog,
-                              maxRepayUsd: Number(e.target.value),
+                              maxTopUpWbtc: Number(e.target.value),
                             },
                           };
                           setConfig(updated);
@@ -577,12 +628,72 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                             ...config,
                             watchdog: {
                               ...config.watchdog,
-                              maxRepayUsd: Number(e.target.value),
+                              maxTopUpWbtc: Number(e.target.value),
                             },
                           };
                           void saveConfig(updated);
                         }}
                         className="w-[120px]"
+                      />
+                    </label>
+
+                    <label className="grid gap-1 text-[0.84rem]">
+                      <span className="text-[#afc0d5]">Rescue tx deadline (seconds)</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={Math.round(config.watchdog.deadlineSeconds)}
+                        onChange={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              deadlineSeconds: Number(e.target.value),
+                            },
+                          };
+                          setConfig(updated);
+                        }}
+                        onBlur={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              deadlineSeconds: Number(e.target.value),
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        className="w-[120px]"
+                      />
+                    </label>
+
+                    <label className="grid gap-1 text-[0.84rem]">
+                      <span className="text-[#afc0d5]">Rescue contract</span>
+                      <Input
+                        value={config.watchdog.rescueContract}
+                        onChange={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              rescueContract: e.target.value.trim(),
+                            },
+                          };
+                          setConfig(updated);
+                        }}
+                        onBlur={(e) => {
+                          const updated = {
+                            ...config,
+                            watchdog: {
+                              ...config.watchdog,
+                              rescueContract: e.target.value.trim(),
+                            },
+                          };
+                          void saveConfig(updated);
+                        }}
+                        placeholder="0x..."
+                        className="font-mono text-[0.8rem]"
                       />
                     </label>
 
