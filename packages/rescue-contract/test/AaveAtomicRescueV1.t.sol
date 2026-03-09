@@ -67,7 +67,7 @@ contract MockPool {
     function supply(address, uint256 amount, address onBehalfOf, uint16) external {
         AccountData storage data = accountData[onBehalfOf];
         data.totalCollateralBase += amount / 100; // test-only simplified conversion
-        data.healthFactor += amount / 100; // proportional to supplied amount
+        data.healthFactor += 0.2e18;
     }
 
 }

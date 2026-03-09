@@ -349,9 +349,8 @@ export class Watchdog {
   ): Promise<bigint | null> {
     if (maxAmount <= 0n) return null;
 
-    // HF is approximately linear in amount for small top-ups relative to total
-    // collateral (the weighted LT shifts slightly as new collateral is added).
-    // Two-point linear interpolation is accurate enough for our use case.
+    // HF is linear in amount: HF(a) = currentHF + slope * a
+    // Two points (amount=0, amount=maxAmount) determine the line exactly.
     const [currentHF, maxHF] = await Promise.all([
       this.previewResultingHF(provider, rescueContract, user, 0n),
       this.previewResultingHF(provider, rescueContract, user, maxAmount),
