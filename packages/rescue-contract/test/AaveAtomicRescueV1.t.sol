@@ -69,6 +69,12 @@ contract MockPool {
         data.totalCollateralBase += amount / 100; // test-only simplified conversion
         data.healthFactor += 0.2e18;
     }
+
+    mapping(address => mapping(address => bool)) public collateralEnabled;
+
+    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external {
+        collateralEnabled[msg.sender][asset] = useAsCollateral;
+    }
 }
 
 contract MockAddressesProvider {
@@ -97,7 +103,6 @@ contract MockOracle {
 
 contract MockDataProvider {
     uint256 public liquidationThreshold = 7_500;
-    mapping(address => mapping(address => bool)) public collateral;
 
     function getReserveConfigurationData(address)
         external
@@ -107,16 +112,13 @@ contract MockDataProvider {
         return (8, 7_000, liquidationThreshold, 0, 0, true, true, false, true, false);
     }
 
-    function getUserReserveData(address asset, address user)
+    function getUserReserveData(address, address)
         external
-        view
+        pure
         returns (uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint40, bool)
     {
-        return (0, 0, 0, 0, 0, 0, 0, 0, collateral[user][asset]);
-    }
-
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external {
-        collateral[msg.sender][asset] = useAsCollateral;
+        // Always returns collateral disabled so rescue contract calls pool.setUserUseReserveAsCollateral
+        return (0, 0, 0, 0, 0, 0, 0, 0, false);
     }
 }
 

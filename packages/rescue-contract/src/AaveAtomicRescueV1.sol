@@ -14,6 +14,8 @@ interface IERC20Metadata {
 interface IAavePool {
     function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
 
+    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
+
     function getUserAccountData(address user)
         external
         view
@@ -66,8 +68,6 @@ interface IAaveProtocolDataProvider {
             uint40 stableRateLastUpdated,
             bool usageAsCollateralEnabled
         );
-
-    function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external;
 }
 
 contract AaveAtomicRescueV1 {
@@ -215,7 +215,7 @@ contract AaveAtomicRescueV1 {
     function _ensureCollateralEnabled(address asset, address user) internal {
         (, , , , , , , , bool usageAsCollateralEnabled) = dataProvider.getUserReserveData(asset, user);
         if (!usageAsCollateralEnabled) {
-            dataProvider.setUserUseReserveAsCollateral(asset, true);
+            pool.setUserUseReserveAsCollateral(asset, true);
         }
     }
 
