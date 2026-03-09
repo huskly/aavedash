@@ -5,19 +5,22 @@ import { cn } from '../../lib/utils';
 
 export type BadgeVariant = 'default' | 'positive' | 'warning' | 'destructive';
 
-const badgeVariants = cva('rounded-full px-2 py-[3px] text-[0.72rem] font-bold uppercase', {
-  variants: {
-    variant: {
-      default: 'bg-slate-600 text-slate-50',
-      positive: 'bg-green-600 text-green-50',
-      warning: 'bg-amber-600 text-amber-50',
-      destructive: 'bg-red-600 text-red-50',
+const badgeVariants = cva(
+  'inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold transition-colors',
+  {
+    variants: {
+      variant: {
+        default: 'bg-secondary text-secondary-foreground',
+        positive: 'bg-positive/15 text-positive border border-positive/25',
+        warning: 'bg-warning/15 text-warning border border-warning/25',
+        destructive: 'bg-destructive/15 text-destructive border border-destructive/25',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
     },
   },
-  defaultVariants: {
-    variant: 'default',
-  },
-});
+);
 
 function Badge({
   className,

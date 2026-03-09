@@ -97,8 +97,8 @@ export function ZoneSlider({ zones, onChange, onCommit }: ZoneSliderProps) {
     const pct = ((v - MIN) / (MAX - MIN)) * 100;
     ticks.push(
       <div key={v} className="absolute" style={{ left: `${pct}%` }}>
-        <div className="h-2 w-px bg-[rgba(168,191,217,0.3)]" />
-        <span className="absolute left-1/2 mt-0.5 -translate-x-1/2 text-[0.65rem] text-[#6b7f96]">
+        <div className="h-2 w-px bg-border" />
+        <span className="absolute left-1/2 mt-0.5 -translate-x-1/2 text-[0.65rem] text-muted-foreground">
           {v.toFixed(1)}
         </span>
       </div>,
@@ -150,7 +150,7 @@ export function ZoneSlider({ zones, onChange, onCommit }: ZoneSliderProps) {
             return (
               <SliderThumb
                 key={i}
-                className="border-[#9fb1c7]"
+                className="border-muted-foreground"
                 aria-label={`${lowerZone.name}/${upperZone.name} boundary`}
                 title={`${val.toFixed(2)}`}
               />
@@ -169,8 +169,8 @@ export function ZoneSlider({ zones, onChange, onCommit }: ZoneSliderProps) {
               className="inline-block h-2.5 w-2.5 rounded-full"
               style={{ backgroundColor: ZONE_COLORS[z.name] ?? '#6b7280' }}
             />
-            <span className="capitalize text-[#afc0d5]">{z.name}</span>
-            <span className="text-[#6b7f96]">
+            <span className="capitalize text-muted-foreground">{z.name}</span>
+            <span className="text-muted-foreground/60">
               {z.minHF.toFixed(2)}–{Number.isFinite(z.maxHF) ? z.maxHF.toFixed(2) : '∞'}
             </span>
           </div>

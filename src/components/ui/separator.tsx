@@ -13,8 +13,8 @@ function Separator({
       role="separator"
       aria-orientation={orientation}
       className={cn(
-        orientation === 'horizontal' ? 'my-0.5 h-px w-full' : 'h-full w-px',
-        'shrink-0 bg-[rgba(168,191,217,0.2)]',
+        orientation === 'horizontal' ? 'my-1 h-px w-full' : 'h-full w-px',
+        'shrink-0 bg-border',
         className,
       )}
       {...props}

@@ -11,7 +11,7 @@ import { formatDistance } from 'date-fns';
 import { AlertTriangle, Info, RefreshCw, ShieldCheck, Wallet } from 'lucide-react';
 import { Badge, type BadgeVariant } from './components/ui/badge';
 import { Button } from './components/ui/button';
-import { Card, CardContent, CardHeader } from './components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card';
 import { Input } from './components/ui/input';
 import { Separator } from './components/ui/separator';
 import {
@@ -294,91 +294,97 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[radial-gradient(circle_at_0%_0%,#0f3a68_0%,#081019_58%,#04070d_100%)] px-4 py-4 text-[#dce8f6] antialiased md:px-6 md:py-6">
+    <div className="min-h-screen w-full bg-background px-4 py-6 text-foreground antialiased md:px-6 md:py-8">
       <main className="mx-auto max-w-[1280px]">
         <header className="flex items-end justify-between gap-4 max-[980px]:flex-col max-[980px]:items-start">
           <div>
-            <h1 className="text-[clamp(1.4rem,3vw,2rem)] tracking-[0.01em]">
-              Aave Loan Health Dashboard
-            </h1>
-            <p className="mt-1.5 text-[#9fb1c7]">
+            <h1 className="text-2xl font-semibold tracking-tight">Aave Loan Health Dashboard</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
               Auto-fetched from wallet address using public blockchain data and price APIs.
             </p>
           </div>
           <ServerSettings />
         </header>
 
-        <section className="mt-4 rounded-[18px] border border-[rgba(168,191,217,0.22)] bg-[linear-gradient(140deg,rgba(11,24,39,0.82),rgba(9,16,28,0.6))] p-4 backdrop-blur-[8px]">
-          <form
-            className="flex flex-wrap items-end gap-3 max-[980px]:items-stretch"
-            onSubmit={handleFetch}
-          >
-            <label
-              className="grid min-w-0 gap-[5px] text-[0.84rem] max-[980px]:w-full max-[980px]:max-w-full"
-              htmlFor="wallet"
+        <Card className="mt-6">
+          <CardContent className="pt-6">
+            <form
+              className="flex flex-wrap items-end gap-3 max-[980px]:items-stretch"
+              onSubmit={handleFetch}
             >
-              <span className="text-[#afc0d5]">Wallet address</span>
-              <Input
-                className="max-[980px]:max-w-full"
-                id="wallet"
-                type="text"
-                value={wallet}
-                onChange={(event) => setWallet(event.target.value)}
-                placeholder="0x..."
-                autoComplete="off"
-                spellCheck={false}
-              />
-            </label>
+              <label
+                className="grid min-w-0 gap-1.5 text-sm max-[980px]:w-full max-[980px]:max-w-full"
+                htmlFor="wallet"
+              >
+                <span className="text-muted-foreground">Wallet address</span>
+                <Input
+                  className="max-[980px]:max-w-full"
+                  id="wallet"
+                  type="text"
+                  value={wallet}
+                  onChange={(event) => setWallet(event.target.value)}
+                  placeholder="0x..."
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </label>
 
-            <Button
-              className="max-[980px]:w-full max-[980px]:max-w-full"
-              type="submit"
-              disabled={isLoading}
-            >
-              {isLoading ? <RefreshCw size={16} className="animate-spin" /> : <Wallet size={16} />}
-              {isLoading ? 'Fetching loans...' : 'Fetch loans'}
-            </Button>
-            <Button
-              className="max-[980px]:w-full max-[980px]:max-w-full"
-              type="button"
-              variant="secondary"
-              onClick={handleRefresh}
-              disabled={isLoading}
-            >
-              <RefreshCw size={16} className={isLoading ? 'animate-spin' : undefined} />
-              Refresh
-            </Button>
-          </form>
+              <Button
+                className="max-[980px]:w-full max-[980px]:max-w-full"
+                type="submit"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <RefreshCw size={16} className="animate-spin" />
+                ) : (
+                  <Wallet size={16} />
+                )}
+                {isLoading ? 'Fetching loans...' : 'Fetch loans'}
+              </Button>
+              <Button
+                className="max-[980px]:w-full max-[980px]:max-w-full"
+                type="button"
+                variant="secondary"
+                onClick={handleRefresh}
+                disabled={isLoading}
+              >
+                <RefreshCw size={16} className={isLoading ? 'animate-spin' : undefined} />
+                Refresh
+              </Button>
+            </form>
 
-          {error ? (
-            <p className="mt-2 inline-flex items-center gap-2 text-[0.9rem] text-red-200">
-              <AlertTriangle size={16} />
-              {error}
-            </p>
-          ) : null}
-        </section>
+            {error ? (
+              <p className="mt-3 inline-flex items-center gap-2 text-sm text-destructive">
+                <AlertTriangle size={16} />
+                {error}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
 
         {result ? (
           <>
-            <article className="mt-3 grid gap-[5px] rounded-[18px] border border-[rgba(168,191,217,0.22)] bg-[linear-gradient(140deg,rgba(11,24,39,0.82),rgba(9,16,28,0.6))] px-4 py-[14px] backdrop-blur-[8px]">
-              <p className="text-[0.79rem] text-[#9fb1c7]">Wallet</p>
-              <p className="break-all text-[0.9rem] font-mono">{result.wallet}</p>
-              <p className="text-[0.79rem] text-[#9fb1c7]">
-                Found {result.loans.length} active loan position(s)
-              </p>
-              <p className="text-[0.79rem] text-[#9fb1c7]">
-                Last updated: {fmtTimeAgo(result.lastUpdated, now)}
-              </p>
-            </article>
+            <Card className="mt-4">
+              <CardContent className="gap-1 pt-5 pb-5">
+                <p className="text-xs text-muted-foreground">Wallet</p>
+                <p className="break-all font-mono text-sm">{result.wallet}</p>
+                <p className="text-xs text-muted-foreground">
+                  Found {result.loans.length} active loan position(s)
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Last updated: {fmtTimeAgo(result.lastUpdated, now)}
+                </p>
+              </CardContent>
+            </Card>
 
             {result.loans.length > 0 ? (
               <>
                 {portfolio ? (
                   <Card className="mt-4">
                     <CardHeader>
-                      <h2 className="inline-flex items-center gap-2 text-base">
-                        Portfolio Metrics <Info size={16} />
-                      </h2>
+                      <CardTitle className="inline-flex items-center gap-2">
+                        Portfolio Metrics <Info size={16} className="text-muted-foreground" />
+                      </CardTitle>
                     </CardHeader>
                     <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
                       <KpiCard
@@ -389,7 +395,7 @@ export default function App() {
                       <KpiCard
                         title="Total net worth"
                         value={fmtUSD(portfolio.totalNetWorth, 0)}
-                        caption="Collateral − Debt"
+                        caption="Collateral - Debt"
                       />
                       <KpiCard
                         title="Total collateral"
@@ -416,10 +422,10 @@ export default function App() {
                         value={fmtPct(portfolio.portfolioNetApy)}
                         valueClassName={
                           portfolio.portfolioNetApy >= 0
-                            ? 'text-green-400'
+                            ? 'text-positive'
                             : portfolio.portfolioNetApy > -0.03
-                              ? 'text-yellow-400'
-                              : 'text-red-400'
+                              ? 'text-warning'
+                              : 'text-destructive'
                         }
                         caption="Weighted by net worth"
                       />
@@ -433,10 +439,10 @@ export default function App() {
                         value={fmtPct(portfolio.collateralMargin)}
                         valueClassName={
                           portfolio.collateralMargin >= 0.1
-                            ? 'text-green-400'
+                            ? 'text-positive'
                             : portfolio.collateralMargin >= 0.05
-                              ? 'text-yellow-400'
-                              : 'text-red-400'
+                              ? 'text-warning'
+                              : 'text-destructive'
                         }
                         caption={`${fmtUSD(portfolio.walletCollateralUsd, 0)} wallet collateral matching supplied assets / ${fmtUSD(portfolio.totalDebt, 0)} debt`}
                       />
@@ -458,18 +464,13 @@ export default function App() {
                   </Card>
                 ) : null}
 
-                <nav className="mt-3 flex flex-wrap gap-2" aria-label="Loan positions">
+                <nav className="mt-4 flex flex-wrap gap-2" aria-label="Loan positions">
                   {result.loans.map((loan, index) => (
                     <Button
                       key={loan.id}
                       type="button"
-                      variant="secondary"
+                      variant={loan.id === selectedLoan?.id ? 'default' : 'secondary'}
                       size="sm"
-                      className={`${
-                        loan.id === selectedLoan?.id
-                          ? 'border-[rgba(200,222,247,0.6)] bg-[linear-gradient(135deg,#355f9e,#24436f)]'
-                          : ''
-                      }`}
                       onClick={() => setSelectedLoanId(loan.id)}
                     >
                       Loan {index + 1}: {loan.marketName} · {loan.borrowed.symbol}
@@ -480,9 +481,9 @@ export default function App() {
                 <section className="mt-4 grid gap-4 [grid-template-columns:minmax(320px,0.95fr)_minmax(0,2fr)] max-[980px]:grid-cols-1">
                   <Card>
                     <CardHeader>
-                      <h2 className="inline-flex items-center gap-2 text-base">
-                        Position Snapshot <Info size={16} />
-                      </h2>
+                      <CardTitle className="inline-flex items-center gap-2">
+                        Position Snapshot <Info size={16} className="text-muted-foreground" />
+                      </CardTitle>
                     </CardHeader>
                     <CardContent>
                       <StaticField
@@ -493,16 +494,16 @@ export default function App() {
                       <StaticField label="Debt (USD)" value={fmtUSD(computed.debt, 0)} />
                       <Separator />
 
-                      <div className="grid min-w-0 gap-[5px] text-[0.84rem]">
-                        <span className="text-[#afc0d5]">Supplied collateral assets</span>
+                      <div className="grid min-w-0 gap-1.5 text-sm">
+                        <span className="text-muted-foreground">Supplied collateral assets</span>
                         <ul className="grid list-none gap-1.5">
                           {selectedLoan?.supplied.map((asset) => (
                             <li
                               key={`${asset.address}-${asset.symbol}`}
-                              className="flex justify-between gap-[10px] rounded-[10px] border border-[rgba(168,191,217,0.2)] bg-[rgba(12,24,38,0.6)] px-[10px] py-2 max-[980px]:flex-col max-[980px]:items-start"
+                              className="flex justify-between gap-2.5 rounded-lg border border-border bg-accent px-3 py-2 max-[980px]:flex-col max-[980px]:items-start"
                             >
-                              <span>{asset.symbol}</span>
-                              <span>
+                              <span className="font-medium">{asset.symbol}</span>
+                              <span className="text-muted-foreground">
                                 {fmtAmount(asset.amount)} | {fmtUSD(asset.usdValue, 0)}
                               </span>
                             </li>
@@ -545,15 +546,15 @@ export default function App() {
                   <div className="grid gap-4">
                     <Card>
                       <CardHeader>
-                        <h2 className="inline-flex items-center gap-2 text-base">
+                        <CardTitle className="inline-flex items-center gap-2">
                           Status
                           <Badge variant={toBadgeVariant(status.tone)}>{status.label}</Badge>
                           {computed.healthFactor < 1.5 ? (
-                            <AlertTriangle size={16} />
+                            <AlertTriangle size={16} className="text-destructive" />
                           ) : (
-                            <ShieldCheck size={16} />
+                            <ShieldCheck size={16} className="text-positive" />
                           )}
-                        </h2>
+                        </CardTitle>
                       </CardHeader>
                       <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
                         <KpiCard
@@ -591,20 +592,20 @@ export default function App() {
                               }
                             />
                           ) : (
-                            <div className="rounded-[14px] border border-[rgba(168,191,217,0.18)] bg-[rgba(12,24,38,0.55)] p-3">
-                              <span className="mb-1.5 block text-[0.78rem] text-[#9fb1c7]">
+                            <div className="rounded-lg border border-border bg-accent p-3">
+                              <span className="mb-1.5 block text-xs text-muted-foreground">
                                 Liquidation Prices
                               </span>
                               <ul className="grid list-none gap-1">
                                 {computed.assetLiquidations.map((al) => (
                                   <li
                                     key={al.symbol}
-                                    className="flex items-center justify-between gap-2 text-[0.84rem]"
+                                    className="flex items-center justify-between gap-2 text-sm"
                                   >
-                                    <span className="text-[#afc0d5]">{al.symbol}</span>
+                                    <span className="text-muted-foreground">{al.symbol}</span>
                                     <span className="text-right">
                                       {Number.isFinite(al.liqPrice)
-                                        ? `${fmtUSD(al.liqPrice, 2)} (−${fmtPct(clamp(al.priceDropToLiq, 0, 1), 1)})`
+                                        ? `${fmtUSD(al.liqPrice, 2)} (-${fmtPct(clamp(al.priceDropToLiq, 0, 1), 1)})`
                                         : 'N/A'}
                                     </span>
                                   </li>
@@ -616,7 +617,7 @@ export default function App() {
                         <KpiCard
                           title="Equity"
                           value={fmtUSD(computed.equity, 0)}
-                          caption="Collateral − Debt"
+                          caption="Collateral - Debt"
                         />
                       </CardContent>
                     </Card>
@@ -624,7 +625,7 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-4 max-[980px]:grid-cols-1">
                       <Card>
                         <CardHeader>
-                          <h2 className="inline-flex items-center gap-2 text-base">Main Metrics</h2>
+                          <CardTitle>Main Metrics</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <Row label="Collateral value" value={fmtUSD(computed.collateralUSD, 0)} />
@@ -652,9 +653,7 @@ export default function App() {
 
                       <Card>
                         <CardHeader>
-                          <h2 className="inline-flex items-center gap-2 text-base">
-                            Carry / Net APY
-                          </h2>
+                          <CardTitle>Carry / Net APY</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <Row label="Supply APY" value={fmtPct(computed.rSupply)} />
@@ -686,10 +685,10 @@ export default function App() {
                             label="Net APY (on equity)"
                             value={fmtPct(computed.netAPYOnEquity)}
                           />
-                          <p className="text-[0.79rem] text-[#9fb1c7]">
-                            Net APY is ROE: (supply − borrow) / equity.
+                          <p className="text-xs text-muted-foreground">
+                            Net APY is ROE: (supply - borrow) / equity.
                           </p>
-                          <p className="text-[0.79rem] text-[#9fb1c7]">
+                          <p className="text-xs text-muted-foreground">
                             Debt deploy estimate assumes 100% of debt earns deploy APY.
                           </p>
                         </CardContent>
@@ -698,9 +697,7 @@ export default function App() {
 
                     <Card>
                       <CardHeader>
-                        <h2 className="inline-flex items-center gap-2 text-base">
-                          Monitoring Checklist
-                        </h2>
+                        <CardTitle>Monitoring Checklist</CardTitle>
                       </CardHeader>
                       <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
                         <ChecklistItem
@@ -738,17 +735,17 @@ export default function App() {
 
                     <Card>
                       <CardHeader>
-                        <h2 className="inline-flex items-center gap-2 text-base">Sensitivity</h2>
+                        <CardTitle>Sensitivity</CardTitle>
                       </CardHeader>
                       <CardContent className="grid-cols-3 max-[980px]:grid-cols-1">
                         <KpiCard
-                          title="Equity move for ±10% price"
+                          title="Equity move for +/-10% price"
                           value={
                             Number.isFinite(computed.leverage)
                               ? fmtPct(computed.equityMoveFor10Pct, 1)
                               : '—'
                           }
-                          caption="Approx = leverage × 10%"
+                          caption="Approx = leverage x 10%"
                         />
                         <KpiCard
                           title="Max borrow (by LTV)"
@@ -766,14 +763,18 @@ export default function App() {
                 </section>
               </>
             ) : (
-              <article className="mt-3 rounded-[18px] border border-[rgba(168,191,217,0.22)] bg-[linear-gradient(140deg,rgba(11,24,39,0.82),rgba(9,16,28,0.6))] p-4 backdrop-blur-[8px]">
-                <p>No borrowed positions were found for this wallet on Aave V3 Ethereum.</p>
-              </article>
+              <Card className="mt-4">
+                <CardContent className="pt-6">
+                  <p className="text-muted-foreground">
+                    No borrowed positions were found for this wallet on Aave V3 Ethereum.
+                  </p>
+                </CardContent>
+              </Card>
             )}
           </>
         ) : null}
 
-        <footer className="mt-[18px] text-[0.79rem] text-[#9fb1c7]">
+        <footer className="mt-6 text-xs text-muted-foreground">
           <p>
             Simplified monitor. Per-asset liquidation prices are shown for each collateral asset.
           </p>
@@ -789,18 +790,18 @@ function TwoColumn({ children }: { children: ReactNode }) {
 
 function StaticField({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="grid min-w-0 gap-[5px] text-[0.84rem]">
-      <span className="text-[#afc0d5]">{label}</span>
-      <p className="text-[0.95rem] font-semibold text-[#e8f2ff]">{value}</p>
-      {hint ? <p className="text-[0.79rem] text-[#9fb1c7]">{hint}</p> : null}
+    <div className="grid min-w-0 gap-1 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <p className="font-semibold">{value}</p>
+      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-3 text-[0.92rem]">
-      <span className="text-[#9fb1c7]">{label}</span>
+    <div className="flex justify-between gap-3 text-sm">
+      <span className="text-muted-foreground">{label}</span>
       <span className="font-semibold tabular-nums">{value}</span>
     </div>
   );
@@ -808,12 +809,12 @@ function Row({ label, value }: { label: string; value: string }) {
 
 function ChecklistItem({ title, detail, ok }: { title: string; detail: string; ok: boolean }) {
   return (
-    <article className="rounded-[14px] border border-[rgba(168,191,217,0.18)] bg-[rgba(14,25,39,0.6)] p-3">
-      <div className="flex items-center justify-between gap-[10px]">
-        <h3 className="text-[0.94rem]">{title}</h3>
+    <article className="rounded-lg border border-border bg-accent p-3">
+      <div className="flex items-center justify-between gap-2.5">
+        <h3 className="text-sm font-medium">{title}</h3>
         <Badge variant={ok ? 'positive' : 'destructive'}>{ok ? 'OK' : 'Watch'}</Badge>
       </div>
-      <p className="text-[0.79rem] text-[#9fb1c7]">{detail}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
     </article>
   );
 }
@@ -830,10 +831,12 @@ function KpiCard({
   valueClassName?: string;
 }) {
   return (
-    <article className="rounded-[14px] border border-[rgba(168,191,217,0.18)] bg-[rgba(14,25,39,0.6)] p-3">
-      <p className="text-[0.79rem] text-[#9fb1c7]">{title}</p>
-      <p className={`my-1 text-[1.7rem] font-semibold ${valueClassName ?? ''}`}>{value}</p>
-      <p className="text-[0.79rem] text-[#9fb1c7]">{caption}</p>
+    <article className="rounded-lg border border-border bg-accent p-3">
+      <p className="text-xs text-muted-foreground">{title}</p>
+      <p className={`my-1 text-2xl font-semibold tracking-tight ${valueClassName ?? ''}`}>
+        {value}
+      </p>
+      <p className="text-xs text-muted-foreground">{caption}</p>
     </article>
   );
 }

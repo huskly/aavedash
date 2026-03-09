@@ -10,7 +10,7 @@ import {
 } from '@aave-monitor/core';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Card, CardContent, CardHeader } from './ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import { HfSlider } from './HfSlider';
 import { ZoneSlider } from './ZoneSlider';
@@ -138,7 +138,7 @@ export function ServerSettings() {
       <Button
         type="button"
         variant="secondary"
-        size="sm"
+        size="icon"
         onClick={() => setOpen(true)}
         aria-label="Server settings"
       >
@@ -280,29 +280,28 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-16">
-      <Card className="relative w-full max-w-[540px] max-h-[80vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-16 backdrop-blur-sm">
+      <Card className="relative max-h-[80vh] w-full max-w-[540px] overflow-y-auto">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <h2 className="inline-flex items-center gap-2 text-base">
+            <CardTitle className="inline-flex items-center gap-2">
               <Settings size={18} /> Server Settings
-            </h2>
-            <Button type="button" variant="secondary" size="sm" onClick={onClose}>
+            </CardTitle>
+            <Button type="button" variant="ghost" size="icon" onClick={onClose}>
               <X size={16} />
             </Button>
           </div>
         </CardHeader>
 
         <CardContent>
-          {error ? <p className="mb-3 text-[0.85rem] text-red-300">{error}</p> : null}
+          {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
 
           {config ? (
             <div className="grid gap-4">
-              {/* Notification Settings (collapsible) */}
               <section>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 text-left text-[0.9rem] font-semibold"
+                  className="flex w-full items-center gap-2 text-left text-sm font-semibold"
                   onClick={() => setShowNotificationSettings(!showNotificationSettings)}
                 >
                   {showNotificationSettings ? (
@@ -313,12 +312,12 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                   Notification Settings
                 </button>
                 {showNotificationSettings ? (
-                  <div className="mt-2 grid gap-4">
+                  <div className="mt-3 grid gap-4">
                     <section className="grid gap-3">
-                      <h3 className="text-[0.9rem] font-semibold">Telegram</h3>
+                      <h3 className="text-sm font-semibold">Telegram</h3>
 
-                      <label className="grid gap-1 text-[0.84rem]">
-                        <span className="text-[#afc0d5]">Chat ID</span>
+                      <label className="grid gap-1.5 text-sm">
+                        <span className="text-muted-foreground">Chat ID</span>
                         <Input
                           value={config.telegram.chatId}
                           onChange={(e) => {
@@ -341,7 +340,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                       </label>
 
                       <div className="flex items-center gap-3">
-                        <label className="flex items-center gap-2 text-[0.84rem]">
+                        <label className="flex items-center gap-2 text-sm">
                           <input
                             type="checkbox"
                             checked={config.telegram.enabled}
@@ -352,7 +351,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                               };
                               void saveConfig(updated);
                             }}
-                            className="accent-blue-500"
+                            className="accent-primary"
                           />
                           Enable notifications
                         </label>
@@ -378,31 +377,31 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                     <Separator />
 
                     <section className="grid gap-3">
-                      <h3 className="text-[0.9rem] font-semibold">Wallets</h3>
+                      <h3 className="text-sm font-semibold">Wallets</h3>
 
                       {config.wallets.length > 0 ? (
                         <ul className="grid gap-2">
                           {config.wallets.map((w, i) => (
                             <li
                               key={`${w.address}-${i}`}
-                              className="flex items-center gap-2 rounded-[10px] border border-[rgba(168,191,217,0.2)] bg-[rgba(12,24,38,0.6)] px-3 py-2 text-[0.84rem]"
+                              className="flex items-center gap-2 rounded-lg border border-border bg-accent px-3 py-2 text-sm"
                             >
                               <input
                                 type="checkbox"
                                 checked={w.enabled}
                                 onChange={() => toggleWallet(i)}
-                                className="accent-blue-500"
+                                className="accent-primary"
                               />
                               <div className="min-w-0 flex-1">
                                 {w.label ? <span className="font-semibold">{w.label} </span> : null}
-                                <span className="break-all font-mono text-[0.78rem] text-[#9fb1c7]">
+                                <span className="break-all font-mono text-xs text-muted-foreground">
                                   {w.address}
                                 </span>
                               </div>
                               <Button
                                 type="button"
-                                variant="secondary"
-                                size="sm"
+                                variant="ghost"
+                                size="icon"
                                 onClick={() => removeWallet(i)}
                               >
                                 <Trash2 size={14} />
@@ -411,7 +410,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                           ))}
                         </ul>
                       ) : (
-                        <p className="text-[0.84rem] text-[#9fb1c7]">No wallets configured.</p>
+                        <p className="text-sm text-muted-foreground">No wallets configured.</p>
                       )}
 
                       <div className="flex flex-wrap gap-2">
@@ -438,20 +437,19 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
 
               <Separator />
 
-              {/* Watchdog Settings (collapsible) */}
               <section>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 text-left text-[0.9rem] font-semibold"
+                  className="flex w-full items-center gap-2 text-left text-sm font-semibold"
                   onClick={() => setShowWatchdog(!showWatchdog)}
                 >
                   {showWatchdog ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   Watchdog
                 </button>
                 {showWatchdog ? (
-                  <div className="mt-2 grid gap-3">
+                  <div className="mt-3 grid gap-3">
                     <div className="flex flex-wrap items-center gap-4">
-                      <label className="flex items-center gap-2 text-[0.84rem]">
+                      <label className="flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
                           checked={config.watchdog.enabled}
@@ -465,11 +463,11 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                             };
                             void saveConfig(updated);
                           }}
-                          className="accent-blue-500"
+                          className="accent-primary"
                         />
                         Enable watchdog
                       </label>
-                      <label className="flex items-center gap-2 text-[0.84rem]">
+                      <label className="flex items-center gap-2 text-sm">
                         <input
                           type="checkbox"
                           checked={config.watchdog.dryRun}
@@ -483,14 +481,14 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                             };
                             void saveConfig(updated);
                           }}
-                          className="accent-blue-500"
+                          className="accent-primary"
                         />
                         Dry run mode
                       </label>
                     </div>
 
                     {!config.watchdog.dryRun ? (
-                      <p className="text-[0.79rem] text-[#f3d194]">
+                      <p className="text-xs text-warning">
                         Live mode requires WATCHDOG_PRIVATE_KEY on the server.
                       </p>
                     ) : null}
@@ -524,8 +522,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                       }}
                     />
 
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Action cooldown (minutes)</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Action cooldown (minutes)</span>
                       <Input
                         type="number"
                         min="1"
@@ -555,8 +553,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                       />
                     </label>
 
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Max top-up per action (WBTC)</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Max top-up per action (WBTC)</span>
                       <Input
                         type="number"
                         min="0.0001"
@@ -586,8 +584,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                       />
                     </label>
 
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Rescue tx deadline (seconds)</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Rescue tx deadline (seconds)</span>
                       <Input
                         type="number"
                         min="1"
@@ -617,8 +615,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                       />
                     </label>
 
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Rescue contract</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Rescue contract</span>
                       <Input
                         value={config.watchdog.rescueContract}
                         onChange={(e) => {
@@ -642,12 +640,12 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                           void saveConfig(updated);
                         }}
                         placeholder="0x..."
-                        className="font-mono text-[0.8rem]"
+                        className="font-mono text-xs"
                       />
                     </label>
 
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Max gas (gwei)</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Max gas (gwei)</span>
                       <Input
                         type="number"
                         min="1"
@@ -682,11 +680,10 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
 
               <Separator />
 
-              {/* Zone Thresholds (collapsible) */}
               <section>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 text-left text-[0.9rem] font-semibold"
+                  className="flex w-full items-center gap-2 text-left text-sm font-semibold"
                   onClick={() => setShowZones(!showZones)}
                 >
                   {showZones ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
@@ -705,20 +702,19 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
 
               <Separator />
 
-              {/* Polling Settings (collapsible) */}
               <section>
                 <button
                   type="button"
-                  className="flex w-full items-center gap-2 text-left text-[0.9rem] font-semibold"
+                  className="flex w-full items-center gap-2 text-left text-sm font-semibold"
                   onClick={() => setShowPolling(!showPolling)}
                 >
                   {showPolling ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                   Polling Settings
                 </button>
                 {showPolling ? (
-                  <div className="mt-2 grid gap-3">
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Polling interval (minutes)</span>
+                  <div className="mt-3 grid gap-3">
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Polling interval (minutes)</span>
                       <Input
                         type="number"
                         min="1"
@@ -737,8 +733,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                         className="w-[100px]"
                       />
                     </label>
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Debounce checks</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Debounce checks</span>
                       <Input
                         type="number"
                         min="1"
@@ -757,8 +753,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                         className="w-[100px]"
                       />
                     </label>
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Reminder interval (minutes)</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Reminder interval (minutes)</span>
                       <Input
                         type="number"
                         min="1"
@@ -777,8 +773,8 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                         className="w-[100px]"
                       />
                     </label>
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Recovery cooldown (minutes)</span>
+                    <label className="grid gap-1.5 text-sm">
+                      <span className="text-muted-foreground">Recovery cooldown (minutes)</span>
                       <Input
                         type="number"
                         min="1"
@@ -802,7 +798,7 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
               </section>
             </div>
           ) : (
-            <p className="text-[0.84rem] text-[#9fb1c7]">Loading configuration...</p>
+            <p className="text-sm text-muted-foreground">Loading configuration...</p>
           )}
         </CardContent>
       </Card>
