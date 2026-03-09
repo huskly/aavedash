@@ -16,11 +16,11 @@ import { Input } from './components/ui/input';
 import { Separator } from './components/ui/separator';
 import {
   type BadgeTone,
+  type AssetPosition,
   type FetchState,
   type LoanPosition,
   ETHEREUM_ADDRESS_REGEX,
   DEFAULT_R_DEPLOY,
-  STABLECOIN_SYMBOLS,
   clamp,
   computeLoanMetrics,
   healthLabel,
@@ -39,11 +39,28 @@ const R_DEPLOY = parseDeployRate(R_DEPLOY_ENV, DEFAULT_R_DEPLOY);
 const UPDATE_RATE_MS = 120_000;
 const LAST_WALLET_STORAGE_KEY = 'aave-monitor:last-wallet';
 
-async function fetchWalletStablecoins(wallet: string): Promise<Map<string, number>> {
-  const res = await fetch(`/api/balances/${wallet}`);
+async function fetchWalletCollateralBalances(
+  wallet: string,
+  assets: AssetPosition[],
+): Promise<Map<string, number>> {
+  const tokens = Array.from(
+    new Map(
+      assets.map((asset) => [
+        asset.address.toLowerCase(),
+        { address: asset.address.toLowerCase(), decimals: asset.decimals },
+      ]),
+    ).values(),
+  );
+  if (tokens.length === 0) return new Map();
+
+  const res = await fetch(`/api/balances/${wallet}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tokens }),
+  });
   if (!res.ok) return new Map();
   const data = (await res.json()) as Record<string, number>;
-  return new Map(Object.entries(data));
+  return new Map(Object.entries(data).map(([address, amount]) => [address.toLowerCase(), amount]));
 }
 
 function getWalletFromQueryString(): string {
@@ -103,7 +120,9 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string>('');
   const [result, setResult] = useState<FetchState | null>(null);
-  const [walletStablecoins, setWalletStablecoins] = useState<Map<string, number>>(new Map());
+  const [walletCollateralBalances, setWalletCollateralBalances] = useState<Map<string, number>>(
+    new Map(),
+  );
   const [now, setNow] = useState(() => Date.now());
   const hasAutoFetchedInitialWallet = useRef(false);
 
@@ -135,21 +154,18 @@ export default function App() {
         ? finiteHealthFactors.reduce((sum, item) => sum + item, 0) / finiteHealthFactors.length
         : Infinity;
 
-    // Cash margin of safety
-    let suppliedStablecoinUsd = 0;
+    const collateralPricesByAddress = new Map<string, number>();
     for (const loan of result.loans) {
       for (const asset of loan.supplied) {
-        if (STABLECOIN_SYMBOLS.has(asset.symbol)) {
-          suppliedStablecoinUsd += asset.usdValue;
-        }
+        collateralPricesByAddress.set(asset.address.toLowerCase(), asset.usdPrice);
       }
     }
-    let walletStablecoinUsd = 0;
-    for (const value of walletStablecoins.values()) {
-      walletStablecoinUsd += value;
+
+    let walletCollateralUsd = 0;
+    for (const [address, balance] of walletCollateralBalances.entries()) {
+      walletCollateralUsd += balance * (collateralPricesByAddress.get(address) ?? 0);
     }
-    const totalStablecoinUsd = suppliedStablecoinUsd + walletStablecoinUsd;
-    const cashMargin = totalDebt > 0 ? totalStablecoinUsd / totalDebt : 0;
+    const collateralMargin = totalDebt > 0 ? walletCollateralUsd / totalDebt : 0;
 
     return {
       loanCount: metrics.length,
@@ -165,10 +181,10 @@ export default function App() {
       averageBorrowApy: totalDebt > 0 ? totalBorrowCost / totalDebt : 0,
       portfolioNetApy: totalNetWorth > 0 ? totalNetEarn / totalNetWorth : 0,
       borrowPowerUsed: totalMaxBorrow > 0 ? totalDebt / totalMaxBorrow : 0,
-      cashMargin,
-      totalStablecoinUsd,
+      collateralMargin,
+      walletCollateralUsd,
     };
-  }, [result, walletStablecoins]);
+  }, [result, walletCollateralBalances]);
   const portfolioHealthBand = useMemo(
     () => portfolioHealthFactorBand(portfolio?.averageHealthFactor ?? NaN),
     [portfolio],
@@ -179,16 +195,24 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      const [reserves, stableBalances] = await Promise.all([
-        fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY),
-        fetchWalletStablecoins(normalizedWallet).catch(() => new Map<string, number>()),
-      ]);
+      const reserves = await fetchFromAaveSubgraph(normalizedWallet, GRAPH_API_KEY);
       const reserveSymbols = Array.from(new Set(reserves.map((entry) => entry.reserve.symbol)));
       const prices = await fetchUsdPrices(reserveSymbols, COINGECKO_API_KEY);
       const loans = buildLoanPositions(reserves, prices);
+      const collateralAssets = Array.from(
+        new Map(
+          loans
+            .flatMap((loan) => loan.supplied)
+            .map((asset) => [asset.address.toLowerCase(), asset]),
+        ).values(),
+      );
+      const collateralBalances = await fetchWalletCollateralBalances(
+        normalizedWallet,
+        collateralAssets,
+      ).catch(() => new Map<string, number>());
       const updatedAt = Date.now();
 
-      setWalletStablecoins(stableBalances);
+      setWalletCollateralBalances(collateralBalances);
       setNow(updatedAt);
       setResult({
         wallet: normalizedWallet,
@@ -405,16 +429,16 @@ export default function App() {
                         caption="Debt / Max borrow by LTV"
                       />
                       <KpiCard
-                        title="Cash margin of safety"
-                        value={fmtPct(portfolio.cashMargin)}
+                        title="Collateral margin of safety"
+                        value={fmtPct(portfolio.collateralMargin)}
                         valueClassName={
-                          portfolio.cashMargin >= 0.1
+                          portfolio.collateralMargin >= 0.1
                             ? 'text-green-400'
-                            : portfolio.cashMargin >= 0.05
+                            : portfolio.collateralMargin >= 0.05
                               ? 'text-yellow-400'
                               : 'text-red-400'
                         }
-                        caption={`${fmtUSD(portfolio.totalStablecoinUsd, 0)} stablecoins / ${fmtUSD(portfolio.totalDebt, 0)} debt`}
+                        caption={`${fmtUSD(portfolio.walletCollateralUsd, 0)} wallet collateral matching supplied assets / ${fmtUSD(portfolio.totalDebt, 0)} debt`}
                       />
                     </CardContent>
                     <CardContent>

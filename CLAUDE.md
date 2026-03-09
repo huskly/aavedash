@@ -40,7 +40,7 @@ Backend server notes:
 - `packages/server` auto-loads the root `.env` on startup.
 - Backend Graph/CoinGecko keys are read from `VITE_THE_GRAPH_API_KEY` and `VITE_COINGECKO_API_KEY` (legacy non-`VITE_` names still work as fallback).
 - `POST /api/status/refresh` forces an immediate monitor recomputation and returns fresh `/api/status` payload.
-- Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and cash margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
+- Telegram `/status` includes portfolio average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %) alongside per-loan health factors. Telegram alerts include per-asset liquidation prices for each collateral asset.
 - Telegram `/status` includes `Last updated` with absolute timestamp + relative time (e.g. `3 minutes ago`).
 - Telegram command metadata (`/status`, `/refresh`, `/watchdog`, `/help`) is synced on server startup via `setMyCommands`, so Telegram slash-command suggestions stay current.
 - Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
@@ -56,6 +56,7 @@ Frontend notes:
 
 - `src/App.tsx` stores the last successfully loaded wallet under `localStorage['aave-monitor:last-wallet']`.
 - On page load, wallet resolution order is: query string (`wallet`, `address`, `walletAddress`) first, then saved local storage wallet.
+- The portfolio card labeled `Collateral margin of safety` is based on wallet-held balances of tokens that also appear in the loan's supplied collateral set; it does not include unrelated wallet assets.
 
 ## Architecture
 

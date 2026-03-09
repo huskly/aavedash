@@ -14,4 +14,9 @@ export default defineConfig({
       '@aave-monitor/core': path.resolve(__dirname, 'packages/aave-core/src/index.ts'),
     },
   },
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3001',
+    },
+  },
 });

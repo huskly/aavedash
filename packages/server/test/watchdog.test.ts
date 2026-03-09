@@ -31,6 +31,7 @@ function createLoan(): LoanPosition {
     borrowed: {
       symbol: 'USDC',
       address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      decimals: 6,
       amount: 1600,
       usdPrice: 1,
       usdValue: 1600,
@@ -44,6 +45,7 @@ function createLoan(): LoanPosition {
       {
         symbol: 'WBTC',
         address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599',
+        decimals: 8,
         amount: 0.08,
         usdPrice: 40_000,
         usdValue: 3_200,

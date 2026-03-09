@@ -38,6 +38,7 @@ export type RawUserReserve = {
 export type AssetPosition = {
   symbol: string;
   address: string;
+  decimals: number;
   amount: number;
   usdPrice: number;
   usdValue: number;

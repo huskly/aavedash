@@ -7,6 +7,7 @@ import { formatDistanceToNowStrict } from 'date-fns';
 import {
   classifyZone,
   DEFAULT_ZONES,
+  fetchTokenBalances,
   type Zone,
   fetchStablecoinBalances,
 } from '@aave-monitor/core';
@@ -61,6 +62,15 @@ const partialAlertConfigSchema = z
       .partial(),
   })
   .partial();
+
+const tokenBalanceRequestSchema = z.object({
+  tokens: z.array(
+    z.object({
+      address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
+      decimals: z.number().int().min(0).max(255),
+    }),
+  ),
+});
 
 type ConfigUpdate = Partial<Omit<AlertConfig, 'watchdog'>> & {
   watchdog?: Partial<WatchdogConfig>;
@@ -242,6 +252,38 @@ app.get('/api/balances/:wallet', async (req, res) => {
   }
 });
 
+app.post('/api/balances/:wallet', async (req, res) => {
+  const { wallet } = req.params;
+  if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+    res.status(400).json({ error: 'Invalid wallet address' });
+    return;
+  }
+
+  const parsed = tokenBalanceRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const path = issue?.path.join('.') ?? 'body';
+    res.status(400).json({ error: `${path}: ${issue?.message ?? 'Invalid request body'}` });
+    return;
+  }
+
+  try {
+    const balances = await fetchTokenBalances(
+      wallet,
+      RPC_URL,
+      parsed.data.tokens.map((token) => ({
+        key: token.address.toLowerCase(),
+        address: token.address,
+        decimals: token.decimals,
+      })),
+    );
+    res.json(Object.fromEntries(balances));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to fetch balances';
+    res.status(502).json({ error: message });
+  }
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
@@ -303,17 +345,15 @@ function formatStatusMessage(
     (acc, state) => {
       acc.debt += state.debtUsd;
       acc.collateral += state.collateralUsd;
-      acc.suppliedStablecoin += state.suppliedStablecoinUsd;
       acc.maxBorrowByLtv += state.maxBorrowByLtvUsd;
       acc.equity += state.equityUsd;
       acc.netEarn += state.netEarnUsd;
       return acc;
     },
-    { debt: 0, collateral: 0, suppliedStablecoin: 0, maxBorrowByLtv: 0, equity: 0, netEarn: 0 },
+    { debt: 0, collateral: 0, maxBorrowByLtv: 0, equity: 0, netEarn: 0 },
   );
   const portfolioNetApy = totals.equity > 0 ? totals.netEarn / totals.equity : 0;
-  const totalStablecoinUsd = totals.suppliedStablecoin + status.totalWalletStablecoinUsd;
-  const cashMargin = totals.debt > 0 ? totalStablecoinUsd / totals.debt : 0;
+  const collateralMargin = totals.debt > 0 ? status.totalWalletCollateralUsd / totals.debt : 0;
   const borrowPowerUsed = totals.maxBorrowByLtv > 0 ? totals.debt / totals.maxBorrowByLtv : 0;
   const finiteHealthFactors = visibleStates
     .map((state) => state.healthFactor)
@@ -335,7 +375,7 @@ function formatStatusMessage(
     `Total collateral: <b>${fmtUsd(totals.collateral)}</b>`,
     `Total debt: <b>${fmtUsd(totals.debt)}</b>`,
     `Borrow power used: <b>${fmtPct(borrowPowerUsed)}</b>`,
-    `Cash on hand: <b>${fmtUsd(totalStablecoinUsd)}</b> (${fmtPct(cashMargin)})`,
+    `Collateral margin of safety: <b>${fmtUsd(status.totalWalletCollateralUsd)}</b> (${fmtPct(collateralMargin)})`,
     '',
   );
 

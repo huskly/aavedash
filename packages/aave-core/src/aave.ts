@@ -122,6 +122,7 @@ function toAssetPosition(
   return {
     symbol,
     address,
+    decimals: raw.reserve.decimals,
     amount,
     usdPrice,
     usdValue: amount * usdPrice,

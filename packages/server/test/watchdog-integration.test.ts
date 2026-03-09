@@ -44,6 +44,7 @@ function createLoan(overrides: Partial<LoanPosition> = {}): LoanPosition {
     borrowed: {
       symbol: 'USDC',
       address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+      decimals: 6,
       amount: 1600,
       usdPrice: 1,
       usdValue: 1600,
@@ -57,6 +58,7 @@ function createLoan(overrides: Partial<LoanPosition> = {}): LoanPosition {
       {
         symbol: 'WBTC',
         address: WBTC_CONTRACT,
+        decimals: 8,
         amount: 0.08,
         usdPrice: 40_000,
         usdValue: 3_200,
@@ -454,6 +456,7 @@ describe('evaluate integration with mock provider', () => {
         {
           symbol: 'WBTC',
           address: WBTC_CONTRACT,
+          decimals: 8,
           amount: 0.12,
           usdPrice: 40_000,
           usdValue: 4_800,

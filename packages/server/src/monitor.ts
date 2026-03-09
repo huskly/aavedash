@@ -1,16 +1,16 @@
 import {
   type AssetLiquidation,
+  type AssetPosition,
   type Zone,
   type ZoneName,
   classifyZone,
   isWorsening,
   isImproving,
   fetchFromAaveSubgraph,
+  fetchTokenBalances,
   fetchUsdPrices,
-  fetchStablecoinBalances,
   buildLoanPositions,
   computeLoanMetrics,
-  STABLECOIN_SYMBOLS,
   DEFAULT_R_DEPLOY,
   DEFAULT_ZONES,
 } from '@aave-monitor/core';
@@ -26,7 +26,6 @@ export type LoanAlertState = {
   adjustedHF: number;
   debtUsd: number;
   collateralUsd: number;
-  suppliedStablecoinUsd: number;
   maxBorrowByLtvUsd: number;
   equityUsd: number;
   netEarnUsd: number;
@@ -40,7 +39,7 @@ export type LoanAlertState = {
 export type MonitorStatus = {
   running: boolean;
   states: LoanAlertState[];
-  totalWalletStablecoinUsd: number;
+  totalWalletCollateralUsd: number;
   lastPollAt: number | null;
   lastError: string | null;
   watchdogLog: WatchdogLogEntry[];
@@ -49,7 +48,7 @@ export type MonitorStatus = {
 export class Monitor {
   private states = new Map<string, LoanAlertState>();
   private timerId: ReturnType<typeof setInterval> | null = null;
-  private walletStablecoinUsd = new Map<string, number>();
+  private walletCollateralUsd = new Map<string, number>();
   private lastPollAt: number | null = null;
   private lastError: string | null = null;
   private running = false;
@@ -104,7 +103,7 @@ export class Monitor {
     return {
       running: this.running,
       states: Array.from(this.states.values()),
-      totalWalletStablecoinUsd: Array.from(this.walletStablecoinUsd.values()).reduce(
+      totalWalletCollateralUsd: Array.from(this.walletCollateralUsd.values()).reduce(
         (sum, value) => sum + value,
         0,
       ),
@@ -133,9 +132,9 @@ export class Monitor {
         this.states.delete(stateKey);
       }
     }
-    for (const existingAddress of Array.from(this.walletStablecoinUsd.keys())) {
+    for (const existingAddress of Array.from(this.walletCollateralUsd.keys())) {
       if (!enabledAddresses.has(existingAddress)) {
-        this.walletStablecoinUsd.delete(existingAddress);
+        this.walletCollateralUsd.delete(existingAddress);
       }
     }
 
@@ -175,29 +174,38 @@ export class Monitor {
     );
 
     const loans = buildLoanPositions(reserves, prices);
-    const walletStablecoinBalances = await fetchStablecoinBalances(address, this.rpcUrl).catch(
-      () => {
-        console.warn(
-          `[Monitor] Stablecoin wallet balances unavailable for ${this.shortAddr(address)}`,
-        );
-        return new Map<string, number>();
-      },
+    const collateralAssets = Array.from(
+      new Map(
+        loans
+          .flatMap((loan) => loan.supplied)
+          .map((asset) => [asset.address.toLowerCase(), asset] satisfies [string, AssetPosition]),
+      ).values(),
     );
-    const walletStablecoinUsd = Array.from(walletStablecoinBalances.values()).reduce(
-      (sum, value) => sum + value,
-      0,
-    );
-    this.walletStablecoinUsd.set(address.toLowerCase(), walletStablecoinUsd);
+    const walletCollateralBalances = await fetchTokenBalances(
+      address,
+      this.rpcUrl,
+      collateralAssets.map((asset) => ({
+        key: asset.address.toLowerCase(),
+        address: asset.address,
+        decimals: asset.decimals,
+      })),
+    ).catch(() => {
+      console.warn(
+        `[Monitor] Collateral wallet balances unavailable for ${this.shortAddr(address)}`,
+      );
+      return new Map<string, number>();
+    });
+    const walletCollateralUsd = collateralAssets.reduce((sum, asset) => {
+      const balance = walletCollateralBalances.get(asset.address.toLowerCase()) ?? 0;
+      return sum + balance * asset.usdPrice;
+    }, 0);
+    this.walletCollateralUsd.set(address.toLowerCase(), walletCollateralUsd);
 
     const now = Date.now();
     const activeStateKeys = new Set<string>();
 
     for (const loan of loans) {
       const metrics = computeLoanMetrics(loan, DEFAULT_R_DEPLOY);
-      const suppliedStablecoinUsd = loan.supplied.reduce(
-        (sum, asset) => (STABLECOIN_SYMBOLS.has(asset.symbol) ? sum + asset.usdValue : sum),
-        0,
-      );
       const zone = classifyZone(metrics.healthFactor, this.hydrateZones(config.zones));
       const stateKey = `${address}-${loan.id}`;
       activeStateKeys.add(stateKey);
@@ -222,7 +230,6 @@ export class Monitor {
           adjustedHF: metrics.adjustedHF,
           debtUsd: metrics.debt,
           collateralUsd: metrics.collateralUSD,
-          suppliedStablecoinUsd,
           maxBorrowByLtvUsd: metrics.maxBorrowByLTV,
           equityUsd: metrics.equity,
           netEarnUsd: metrics.netEarnUSD,
@@ -240,7 +247,6 @@ export class Monitor {
       existing.adjustedHF = metrics.adjustedHF;
       existing.debtUsd = metrics.debt;
       existing.collateralUsd = metrics.collateralUSD;
-      existing.suppliedStablecoinUsd = suppliedStablecoinUsd;
       existing.maxBorrowByLtvUsd = metrics.maxBorrowByLTV;
       existing.equityUsd = metrics.equity;
       existing.netEarnUsd = metrics.netEarnUSD;

@@ -25,7 +25,11 @@ export {
   USER_RESERVES_QUERY,
 } from './constants.js';
 
-export { fetchStablecoinBalances } from './balances.js';
+export {
+  fetchStablecoinBalances,
+  fetchTokenBalances,
+  type TokenBalanceTarget,
+} from './balances.js';
 
 export {
   clamp,

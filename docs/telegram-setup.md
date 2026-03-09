@@ -87,7 +87,7 @@ curl -X POST http://localhost:3001/api/status/refresh
 
 Telegram bot commands:
 
-- `/status` prints current loans plus a portfolio summary (average health factor, Net APY, total collateral, total debt, portfolio borrow power used, cash margin of safety in USD and %).
+- `/status` prints current loans plus a portfolio summary (average health factor, Net APY, total collateral, total debt, portfolio borrow power used, collateral margin of safety in USD and %).
 - `/refresh` refreshes monitor state first, then prints the same enriched status output.
 - `/watchdog` prints watchdog mode, thresholds, and recent watchdog actions.
 - `/help` prints all available commands.

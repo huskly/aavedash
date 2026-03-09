@@ -36,6 +36,7 @@ A React + Vite dashboard that auto-loads Aave loan positions from a wallet addre
   - Liquidation price (primary-collateral approximation)
   - LTV, leverage, borrow headroom
   - Carry / Net APY summary
+  - Collateral margin of safety based on wallet balances that match supplied collateral assets
   - Monitoring checklist + sensitivity cards
 
 ## Tech Stack
@@ -65,6 +66,7 @@ VITE_COINGECKO_API_KEY=your_coingecko_demo_api_key
 
 # Optional deploy APY used in carry calculations (decimal form, default: 0.1125)
 VITE_R_DEPLOY=0.1125
+
 ```
 
 Notes:
@@ -160,7 +162,7 @@ After each push to `main`, the workflow builds the app and publishes `dist` to G
 
 A backend monitoring service can poll your positions and send Telegram alerts when health factor zones change (e.g. Safe → Comfort → Watch → Alert → Action → Critical). See **[docs/telegram-setup.md](docs/telegram-setup.md)** for full setup instructions.
 On server startup, Telegram command metadata is synced with `setMyCommands`, so the in-app slash-command menu matches the backend command handlers.
-The Telegram `/status` command includes a portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and cash margin of safety (USD and %).
+The Telegram `/status` command includes a portfolio summary with average health factor, Net APY, total collateral, total debt, portfolio borrow power used, and collateral margin of safety (USD and %).
 The `/status` footer shows `Last updated` with both an absolute timestamp and relative time (e.g. `3 minutes ago`).
 Reminder alerts include a human-readable elapsed duration label (e.g. `2h 40m ago`).
 Paid-off / zero-value positions are excluded from both dashboard and Telegram status output.
