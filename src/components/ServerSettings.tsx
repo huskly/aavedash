@@ -12,6 +12,8 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader } from './ui/card';
 import { Separator } from './ui/separator';
+import { HfSlider } from './HfSlider';
+import { ZoneSlider } from './ZoneSlider';
 
 type WalletConfig = {
   address: string;
@@ -493,98 +495,34 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                       </p>
                     ) : null}
 
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Trigger HF</span>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={config.watchdog.triggerHF}
-                        onChange={(e) => {
-                          const updated = {
-                            ...config,
-                            watchdog: {
-                              ...config.watchdog,
-                              triggerHF: Number(e.target.value),
-                            },
-                          };
-                          setConfig(updated);
-                        }}
-                        onBlur={(e) => {
-                          const updated = {
-                            ...config,
-                            watchdog: {
-                              ...config.watchdog,
-                              triggerHF: Number(e.target.value),
-                            },
-                          };
-                          void saveConfig(updated);
-                        }}
-                        className="w-[120px]"
-                      />
-                    </label>
-
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Target HF</span>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={config.watchdog.targetHF}
-                        onChange={(e) => {
-                          const updated = {
-                            ...config,
-                            watchdog: {
-                              ...config.watchdog,
-                              targetHF: Number(e.target.value),
-                            },
-                          };
-                          setConfig(updated);
-                        }}
-                        onBlur={(e) => {
-                          const updated = {
-                            ...config,
-                            watchdog: {
-                              ...config.watchdog,
-                              targetHF: Number(e.target.value),
-                            },
-                          };
-                          void saveConfig(updated);
-                        }}
-                        className="w-[120px]"
-                      />
-                    </label>
-
-                    <label className="grid gap-1 text-[0.84rem]">
-                      <span className="text-[#afc0d5]">Minimum resulting HF</span>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={config.watchdog.minResultingHF}
-                        onChange={(e) => {
-                          const updated = {
-                            ...config,
-                            watchdog: {
-                              ...config.watchdog,
-                              minResultingHF: Number(e.target.value),
-                            },
-                          };
-                          setConfig(updated);
-                        }}
-                        onBlur={(e) => {
-                          const updated = {
-                            ...config,
-                            watchdog: {
-                              ...config.watchdog,
-                              minResultingHF: Number(e.target.value),
-                            },
-                          };
-                          void saveConfig(updated);
-                        }}
-                        className="w-[120px]"
-                      />
-                    </label>
+                    <HfSlider
+                      triggerHF={config.watchdog.triggerHF}
+                      minResultingHF={config.watchdog.minResultingHF}
+                      targetHF={config.watchdog.targetHF}
+                      onChange={({ triggerHF, minResultingHF, targetHF }) => {
+                        setConfig({
+                          ...config,
+                          watchdog: {
+                            ...config.watchdog,
+                            triggerHF,
+                            minResultingHF,
+                            targetHF,
+                          },
+                        });
+                      }}
+                      onCommit={({ triggerHF, minResultingHF, targetHF }) => {
+                        const updated = {
+                          ...config,
+                          watchdog: {
+                            ...config.watchdog,
+                            triggerHF,
+                            minResultingHF,
+                            targetHF,
+                          },
+                        };
+                        void saveConfig(updated);
+                      }}
+                    />
 
                     <label className="grid gap-1 text-[0.84rem]">
                       <span className="text-[#afc0d5]">Action cooldown (minutes)</span>
@@ -755,34 +693,12 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
                   Zone Thresholds
                 </button>
                 {showZones ? (
-                  <div className="mt-2 grid gap-2">
-                    {config.zones.map((zone, i) => (
-                      <div key={zone.name} className="flex items-center gap-2 text-[0.84rem]">
-                        <span className="w-[70px] font-semibold capitalize">{zone.name}</span>
-                        <Input
-                          type="number"
-                          step="0.05"
-                          value={zone.minHF}
-                          onChange={(e) => {
-                            const value = Number(e.target.value);
-                            const zones = [...config.zones];
-                            zones[i] = { ...zone, minHF: value };
-                            setConfig({ ...config, zones });
-                          }}
-                          onBlur={(e) => {
-                            const value = Number(e.target.value);
-                            const zones = [...config.zones];
-                            zones[i] = { ...zone, minHF: value };
-                            void saveConfig({ ...config, zones });
-                          }}
-                          className="w-[80px]"
-                        />
-                        <span className="text-[#9fb1c7]">to</span>
-                        <span className="text-[#9fb1c7]">
-                          {Number.isFinite(zone.maxHF) ? zone.maxHF : '∞'}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="mt-3">
+                    <ZoneSlider
+                      zones={config.zones}
+                      onChange={(zones) => setConfig({ ...config, zones })}
+                      onCommit={(zones) => void saveConfig({ ...config, zones })}
+                    />
                   </div>
                 ) : null}
               </section>
