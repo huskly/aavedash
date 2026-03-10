@@ -12,6 +12,8 @@ type TelegramUpdate = {
   };
 };
 
+import { logger } from './logger.js';
+
 export class TelegramClient {
   private readonly botToken: string;
   private readonly commands = new Map<string, CommandHandler>();
@@ -39,26 +41,29 @@ export class TelegramClient {
 
       if (!response.ok) {
         const body = await response.text();
-        console.error(`Telegram setMyCommands error (${response.status}): ${body}`);
+        logger.error({ status: response.status, body }, 'Telegram setMyCommands error');
         return;
       }
 
       const data = (await response.json()) as { ok: boolean; description?: string };
       if (!data.ok) {
-        console.error(`Telegram setMyCommands rejected: ${data.description ?? 'unknown error'}`);
+        logger.error(
+          { description: data.description ?? 'unknown error' },
+          'Telegram setMyCommands rejected',
+        );
         return;
       }
 
-      console.log(`Telegram commands synced (${commands.length})`);
+      logger.info({ count: commands.length }, 'Telegram commands synced');
     } catch (error) {
-      console.error('Telegram setMyCommands failed:', error);
+      logger.error({ err: error }, 'Telegram setMyCommands failed');
     }
   }
 
   startCommandPolling(): void {
     if (this.polling || !this.botToken) return;
     this.polling = true;
-    console.log('Telegram bot command polling started');
+    logger.info('Telegram bot command polling started');
     void this.pollUpdates();
   }
 
@@ -68,7 +73,7 @@ export class TelegramClient {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
-    console.log('Telegram bot command polling stopped');
+    logger.info('Telegram bot command polling stopped');
   }
 
   private async pollUpdates(): Promise<void> {
@@ -95,11 +100,11 @@ export class TelegramClient {
         }
       } else {
         const body = await response.text();
-        console.error(`Telegram getUpdates error (${response.status}): ${body}`);
+        logger.error({ status: response.status, body }, 'Telegram getUpdates error');
       }
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'TimeoutError')) {
-        console.error('Telegram poll error:', error);
+        logger.error({ err: error }, 'Telegram poll error');
       }
     }
 
@@ -123,7 +128,7 @@ export class TelegramClient {
       try {
         await handler(String(chatId), args!.trim());
       } catch (error) {
-        console.error(`Error handling /${command}:`, error);
+        logger.error({ err: error, command }, 'Error handling Telegram command');
         await this.sendMessage(String(chatId), `Error processing /${command}. Please try again.`);
       }
     }
@@ -144,13 +149,13 @@ export class TelegramClient {
 
       if (!response.ok) {
         const body = await response.text();
-        console.error(`Telegram API error (${response.status}): ${body}`);
+        logger.error({ status: response.status, body }, 'Telegram API error');
         return false;
       }
 
       return true;
     } catch (error) {
-      console.error('Telegram send failed:', error);
+      logger.error({ err: error }, 'Telegram send failed');
       return false;
     }
   }

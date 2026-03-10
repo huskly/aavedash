@@ -2,6 +2,7 @@ import { computeLoanMetrics, DEFAULT_R_DEPLOY, type LoanPosition } from '@aave-m
 import { formatUnits, Interface, JsonRpcProvider, parseUnits, Wallet } from 'ethers';
 import type { WatchdogConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
+import { logger } from './logger.js';
 
 const WBTC_CONTRACT = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599';
 const WBTC_DECIMALS = 8;
@@ -402,10 +403,14 @@ export class Watchdog {
     // falling back to the full maxAmount unnecessarily.
     if (verifiedHF < targetHF && maxHF > verifiedHF) {
       const gap = maxAmount - clamped;
-      const refinedEstimate =
-        clamped + (gap * (targetHF - verifiedHF)) / (maxHF - verifiedHF) + 1n;
+      const refinedEstimate = clamped + (gap * (targetHF - verifiedHF)) / (maxHF - verifiedHF) + 1n;
       const refinedClamped = refinedEstimate > maxAmount ? maxAmount : refinedEstimate;
-      const refinedHF = await this.previewResultingHF(provider, rescueContract, user, refinedClamped);
+      const refinedHF = await this.previewResultingHF(
+        provider,
+        rescueContract,
+        user,
+        refinedClamped,
+      );
       if (refinedHF >= targetHF) return refinedClamped;
     }
 
@@ -539,8 +544,16 @@ export class Watchdog {
     if (this.log.length > this.maxLogEntries) {
       this.log.length = this.maxLogEntries;
     }
-    console.log(
-      `[Watchdog] ${entry.action}: ${entry.reason} (loan=${entry.loanId}, HF=${entry.healthFactor.toFixed(4)})`,
+    logger.info(
+      {
+        action: entry.action,
+        reason: entry.reason,
+        loan: entry.loanId,
+        healthFactor: Number(entry.healthFactor.toFixed(4)),
+        topUpWbtc: entry.topUpWbtc,
+        ...(entry.txHash && { txHash: entry.txHash }),
+      },
+      'Watchdog log entry',
     );
   }
 }

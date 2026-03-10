@@ -19,6 +19,7 @@ import {
   shouldRunMonitor,
   validateWatchdogThresholds,
 } from './runtime.js';
+import { logger } from './logger.js';
 
 const partialAlertConfigSchema = z
   .object({
@@ -142,7 +143,7 @@ function syncRuntimeServices(options: { restartMonitor?: boolean } = {}): void {
     }
   } else {
     monitor.stop();
-    console.log('Monitor not started: no enabled wallets');
+    logger.info('Monitor not started: no enabled wallets');
   }
 }
 
@@ -443,6 +444,6 @@ if (existsSync(publicDir)) {
 }
 
 app.listen(PORT, () => {
-  console.log(`Aave monitor server listening on port ${PORT}`);
+  logger.info({ port: PORT }, 'Aave monitor server listening');
   syncRuntimeServices();
 });

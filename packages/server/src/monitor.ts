@@ -18,6 +18,7 @@ import { intervalToDuration } from 'date-fns';
 import type { AlertConfig } from './storage.js';
 import type { TelegramClient } from './telegram.js';
 import { Watchdog, type WatchdogLogEntry } from './watchdog.js';
+import { logger } from './logger.js';
 
 export type LoanAlertState = {
   loanId: string;
@@ -82,7 +83,7 @@ export class Monitor {
       void this.poll();
     }, config.polling.intervalMs);
     void this.poll();
-    console.log(`Monitor started (interval: ${config.polling.intervalMs}ms)`);
+    logger.info({ intervalMs: config.polling.intervalMs }, 'Monitor started');
   }
 
   stop(): void {
@@ -91,7 +92,7 @@ export class Monitor {
       this.timerId = null;
     }
     this.running = false;
-    console.log('Monitor stopped');
+    logger.info('Monitor stopped');
   }
 
   restart(): void {
@@ -152,7 +153,7 @@ export class Monitor {
       this.lastError = null;
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : 'Unknown polling error';
-      console.error('Poll error:', this.lastError);
+      logger.error({ err: this.lastError }, 'Poll error');
     }
   }
 
@@ -168,9 +169,14 @@ export class Monitor {
 
     const pricedSymbols = symbols.filter((s) => prices.has(s));
     const missingSymbols = symbols.filter((s) => !prices.has(s));
-    console.log(
-      `[Monitor] Prices for ${this.shortAddr(address)}: ${pricedSymbols.length}/${symbols.length} resolved.` +
-        (missingSymbols.length > 0 ? ` Missing: ${missingSymbols.join(', ')}` : ''),
+    logger.info(
+      {
+        wallet: this.shortAddr(address),
+        resolved: pricedSymbols.length,
+        total: symbols.length,
+        ...(missingSymbols.length > 0 && { missing: missingSymbols }),
+      },
+      'Prices resolved',
     );
 
     const loans = buildLoanPositions(reserves, prices);
@@ -190,9 +196,7 @@ export class Monitor {
         decimals: asset.decimals,
       })),
     ).catch(() => {
-      console.warn(
-        `[Monitor] Collateral wallet balances unavailable for ${this.shortAddr(address)}`,
-      );
+      logger.warn({ wallet: this.shortAddr(address) }, 'Collateral wallet balances unavailable');
       return new Map<string, number>();
     });
     const walletCollateralUsd = collateralAssets.reduce((sum, asset) => {
@@ -213,11 +217,17 @@ export class Monitor {
       const collateralInfo = loan.supplied
         .map((c) => `${c.symbol}=$${prices.get(c.symbol) ?? 'MISSING'}`)
         .join(', ');
-      console.log(
-        `[Monitor] ${this.shortAddr(address)} loan=${loan.id} ` +
-          `HF=${metrics.healthFactor.toFixed(4)} ` +
-          `borrowed=$${loan.totalBorrowedUsd.toFixed(2)} supplied=$${loan.totalSuppliedUsd.toFixed(2)} ` +
-          `zone=${zone.name} collaterals=[${collateralInfo}]`,
+      logger.info(
+        {
+          wallet: this.shortAddr(address),
+          loan: loan.id,
+          healthFactor: Number(metrics.healthFactor.toFixed(4)),
+          borrowedUsd: Number(loan.totalBorrowedUsd.toFixed(2)),
+          suppliedUsd: Number(loan.totalSuppliedUsd.toFixed(2)),
+          zone: zone.name,
+          collaterals: collateralInfo,
+        },
+        'Loan status',
       );
 
       const existing = this.states.get(stateKey);
@@ -337,7 +347,7 @@ export class Monitor {
   private async sendNotification(chatId: string, message: string): Promise<void> {
     const success = await this.telegram.sendMessage(chatId, message);
     if (!success) {
-      console.error('Failed to send Telegram notification');
+      logger.error('Failed to send Telegram notification');
     }
   }
 
