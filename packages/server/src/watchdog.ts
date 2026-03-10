@@ -114,100 +114,127 @@ export class Watchdog {
       return;
     }
 
+    let topUpWbtc: number;
+    let projectedHF: number;
+    let amountRaw: bigint;
     const provider = this.getProvider();
-    const [walletBalanceRaw, allowanceRaw] = await Promise.all([
-      this.getTokenBalance(provider, WBTC_CONTRACT, walletAddress),
-      this.getTokenAllowance(provider, WBTC_CONTRACT, walletAddress, rescueContract),
-    ]);
-
-    const maxTopUpRaw = parseUnits(config.maxTopUpWbtc.toFixed(WBTC_DECIMALS), WBTC_DECIMALS);
-    const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);
-    if (availableRaw <= 0n) {
-      this.addLog({
-        timestamp: now,
-        loanId: loan.id,
-        wallet: walletAddress,
-        action: 'skipped',
-        reason: 'No available WBTC (balance/allowance/maxTopUp all exhausted)',
-        healthFactor,
-        topUpWbtc: 0,
-        projectedHF: healthFactor,
-      });
-      await this.notify(
-        `🚨 <b>Watchdog: WBTC unavailable</b>\n\n` +
-          `Loan: ${loan.id} (${loan.marketName})\n` +
-          `HF: <b>${healthFactor.toFixed(4)}</b>\n` +
-          `Wallet WBTC: ${formatUnits(walletBalanceRaw, WBTC_DECIMALS)}\n` +
-          `Allowance WBTC: ${formatUnits(allowanceRaw, WBTC_DECIMALS)}`,
-      );
-      return;
-    }
-
-    const targetHFWad = this.toWad(config.targetHF);
     const minHFWad = this.toWad(config.minResultingHF);
 
-    let amountRaw = await this.findRequiredAmountRaw(
-      provider,
-      rescueContract,
-      walletAddress,
-      targetHFWad,
-      availableRaw,
-    );
+    try {
+      const [walletBalanceRaw, allowanceRaw] = await Promise.all([
+        this.getTokenBalance(provider, WBTC_CONTRACT, walletAddress),
+        this.getTokenAllowance(provider, WBTC_CONTRACT, walletAddress, rescueContract),
+      ]);
 
-    if (amountRaw === null) {
-      amountRaw = await this.findRequiredAmountRaw(
+      const maxTopUpRaw = parseUnits(config.maxTopUpWbtc.toFixed(WBTC_DECIMALS), WBTC_DECIMALS);
+      const availableRaw = minBigInt(walletBalanceRaw, allowanceRaw, maxTopUpRaw);
+      if (availableRaw <= 0n) {
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          action: 'skipped',
+          reason: 'No available WBTC (balance/allowance/maxTopUp all exhausted)',
+          healthFactor,
+          topUpWbtc: 0,
+          projectedHF: healthFactor,
+        });
+        await this.notify(
+          `🚨 <b>Watchdog: WBTC unavailable</b>\n\n` +
+            `Loan: ${loan.id} (${loan.marketName})\n` +
+            `HF: <b>${healthFactor.toFixed(4)}</b>\n` +
+            `Wallet WBTC: ${formatUnits(walletBalanceRaw, WBTC_DECIMALS)}\n` +
+            `Allowance WBTC: ${formatUnits(allowanceRaw, WBTC_DECIMALS)}`,
+        );
+        return;
+      }
+
+      const targetHFWad = this.toWad(config.targetHF);
+
+      let computedAmount = await this.findRequiredAmountRaw(
         provider,
         rescueContract,
         walletAddress,
-        minHFWad,
+        targetHFWad,
         availableRaw,
       );
-    }
 
-    if (amountRaw === null || amountRaw <= 0n) {
+      if (computedAmount === null) {
+        computedAmount = await this.findRequiredAmountRaw(
+          provider,
+          rescueContract,
+          walletAddress,
+          minHFWad,
+          availableRaw,
+        );
+      }
+
+      if (computedAmount === null || computedAmount <= 0n) {
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          action: 'skipped',
+          reason: 'Insufficient WBTC to achieve minimum resulting HF',
+          healthFactor,
+          topUpWbtc: 0,
+          projectedHF: healthFactor,
+        });
+        await this.notify(
+          `🚨 <b>Watchdog: Rescue not feasible</b>\n\n` +
+            `Loan: ${loan.id} (${loan.marketName})\n` +
+            `Current HF: <b>${healthFactor.toFixed(4)}</b>\n` +
+            `Max usable WBTC: ${formatUnits(availableRaw, WBTC_DECIMALS)}\n` +
+            `Min resulting HF: ${config.minResultingHF}`,
+        );
+        return;
+      }
+
+      amountRaw = computedAmount;
+
+      const projectedHFWad = await this.previewResultingHF(
+        provider,
+        rescueContract,
+        walletAddress,
+        amountRaw,
+      );
+
+      if (projectedHFWad < minHFWad) {
+        this.addLog({
+          timestamp: now,
+          loanId: loan.id,
+          wallet: walletAddress,
+          action: 'skipped',
+          reason: 'Projected HF below minimum resulting HF threshold',
+          healthFactor,
+          topUpWbtc: this.toNumberAmount(amountRaw),
+          projectedHF: this.wadToNumber(projectedHFWad),
+        });
+        return;
+      }
+
+      topUpWbtc = this.toNumberAmount(amountRaw);
+      projectedHF = this.wadToNumber(projectedHFWad);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       this.addLog({
         timestamp: now,
         loanId: loan.id,
         wallet: walletAddress,
         action: 'skipped',
-        reason: 'Insufficient WBTC to achieve minimum resulting HF',
+        reason: `On-chain call failed: ${message}`,
         healthFactor,
         topUpWbtc: 0,
         projectedHF: healthFactor,
       });
       await this.notify(
-        `🚨 <b>Watchdog: Rescue not feasible</b>\n\n` +
+        `❌ <b>Watchdog: On-chain call failed</b>\n\n` +
           `Loan: ${loan.id} (${loan.marketName})\n` +
-          `Current HF: <b>${healthFactor.toFixed(4)}</b>\n` +
-          `Max usable WBTC: ${formatUnits(availableRaw, WBTC_DECIMALS)}\n` +
-          `Min resulting HF: ${config.minResultingHF}`,
+          `HF: <b>${healthFactor.toFixed(4)}</b>\n` +
+          `Error: ${message}`,
       );
       return;
     }
-
-    const projectedHFWad = await this.previewResultingHF(
-      provider,
-      rescueContract,
-      walletAddress,
-      amountRaw,
-    );
-
-    if (projectedHFWad < minHFWad) {
-      this.addLog({
-        timestamp: now,
-        loanId: loan.id,
-        wallet: walletAddress,
-        action: 'skipped',
-        reason: 'Projected HF below minimum resulting HF threshold',
-        healthFactor,
-        topUpWbtc: this.toNumberAmount(amountRaw),
-        projectedHF: this.wadToNumber(projectedHFWad),
-      });
-      return;
-    }
-
-    const topUpWbtc = this.toNumberAmount(amountRaw);
-    const projectedHF = this.wadToNumber(projectedHFWad);
 
     if (config.dryRun) {
       this.addLog({
